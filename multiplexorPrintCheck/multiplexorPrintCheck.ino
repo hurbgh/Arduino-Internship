@@ -8,16 +8,16 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH,SCREEN_HEIGHT,&Wire,OLED_RESET);
 
 //defining ports to be used by the multiplexer
-const int MUX_INH = 0;//port where inhibitor wire connects
+const int MUX_INH = 2;//port where inhibitor wire connects
 const int UMUX_A = 4;
 const int UMUX_B = 16;
 const int UMUX_C = 17;
 const int UART_EN = 15;
 
-//defining ports to be used by the UART1
-#define TX 19//the port where RX wire connects
-#define RX 18//the port where TX wire connects
-HardwareSerial multiplex(1);//using UART1
+//defining ports to be used by the UART2
+#define TX 18//the port where TX wire connects
+#define RX 19//the port where RX wire connects
+HardwareSerial multiplex(2);//using UART2
 bool waitFor77=false;//this is a boolean variable for waiting for the next code to confirm it should start recording
 bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data
 int dataArray[32];//array to store all integers
@@ -42,12 +42,21 @@ unsigned long timeSinceStart;//starts recording time
 unsigned long timeLimit;//this variable will store the end time since start of port switch for waiting, once crossed and not starting integers found it will rnotify the port has no sensor
 bool newPort=true;//boolean variable to know when to record end time for timeLimit
 
+//variables used to get CO2 data
+byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};
+byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};
+byte turnOffCalib[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};
+bool decide=false;
+bool askOnce=false;
+String Choice="";
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   multiplex.begin(9600,SERIAL_8N1,RX,TX);//connection to the multiplexer
   
   dataArray[0]=66;//intitializing array to store pms7003 data
+  
   if(!display.begin(SSD1306_SWITCHCAPVCC,0x3C)){
     Serial.println(F("SSD1306 allocation failed"));
     for(;;);
@@ -60,23 +69,30 @@ void setup() {
   pinMode(UMUX_A,OUTPUT);
   pinMode(UMUX_B,OUTPUT);
   pinMode(UMUX_C,OUTPUT);
-  pinMode(UART_EN,INPUT);
+  pinMode(UART_EN,OUTPUT);
   digitalWrite(MUX_INH,HIGH);
+ 
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   //if (multiplex.available()){
     if (done==false){
-      testSensor();
+      if (portTrack==3||portTrack==4||portTrack==7||portTrack==0){
+        pmsSensor();
+      }
+      else{
+        co2Sensor();
+      }
     }else{
-      if (portTrack!=8){
+      if (portTrack>=0&&portTrack<=7){
         portTrack++;
         done=false;
         portSelect(portTrack);
@@ -87,37 +103,12 @@ void loop() {
         newPort=true;
       }else if (portTrack==8){
         display.clearDisplay();
-        display.setCursor(0, 0);
-        display.print("P19: ");
-        if(P19!=-1&&P19!=-2){
-          display.print(P19);
-        }else if (P19==-1){
-          display.print("CCF");
-        }else if (P19==-2){
-          display.print("CF");
-        }
-        
-        display.print("|");
-        display.print("P20: ");
-        if (P20!=-1&&P20!=-2){
-          display.print(P20);
-        }else if (P20==-1){
-          display.print("CCF");
-        }else if (P20==-2){
-          display.print("CF");
-        }
-        
+        display.setCursor(0,0);
+        display.print("PM2.5");
+        display.setCursor(60,0);
+        display.print("CO2");
         display.setCursor(0, 10);
-        display.print("P21: ");
-        if(P21!=-1&&P21!=-2){
-          display.print(P21);
-        }else if (P21==-1){
-          display.print("CCF");
-        }else if (P21==-2){
-          display.print("CF");
-        }
-        
-        display.print("|");
+
         display.print("P14: ");
         if(P14!=-1&&P14!=-2){
           display.print(P14);
@@ -126,7 +117,19 @@ void loop() {
         }else if (P14==-2){
           display.print("CF");
         }
+
+        display.setCursor(60, 10);
+        display.print("P16: ");
+        if (P16!=-1&&P16!=-2){
+          display.print(P16);
+        }else if (P16==-1){
+          display.print("CCF");
+        } else if (P16==-2){
+          display.print("CF");
+        }        
         
+
+
         display.setCursor(0, 20);
         display.print("P15: ");
         if(P15!=-1&&P15!=-2){
@@ -135,19 +138,10 @@ void loop() {
           display.print("CCF");
         }else if (P15==-2){
           display.print("CF");
-        }
-        
-        display.print("|");
-        display.print("P16: ");
-        if (P16!=-1&&P16!=-2){
-          display.print(P16);
-        }else if (P16==-1){
-          display.print("CCF");
-        } else if (P16==-2){
-          display.print("CF");
-        }
-        
-        display.setCursor(0, 30);
+        }        
+   
+        display.setCursor(60, 20);
+       
         display.print("P17: ");
         if(P17!=-1&&P17!=-2){
           display.print(P17);
@@ -155,9 +149,9 @@ void loop() {
           display.print("CCF");
         }else if (P17==-2){
           display.print("CF");
-        }
+        }     
+        display.setCursor(0, 30);
         
-        display.print("|");
         display.print("P18: ");
         if(P18!=-1&&P18!=-2){
           display.print(P18);
@@ -165,8 +159,40 @@ void loop() {
           display.print("CCF");
         }else if (P18==-2){
           display.print("CF");
-        }
+        }     
+        display.setCursor(60, 30);
+        display.print("P20: ");
+        if (P20!=-1&&P20!=-2){
+          display.print(P20);
+        }else if (P20==-1){
+          display.print("CCF");
+        }else if (P20==-2){
+          display.print("CF");
+        }       
+
         
+        display.setCursor(0, 40);
+        display.print("P19: ");
+        if(P19!=-1&&P19!=-2){
+          display.print(P19);
+        }else if (P19==-1){
+          display.print("CCF");
+        }else if (P19==-2){
+          display.print("CF");
+        }
+        display.setCursor(60, 40);
+       
+        
+        display.print("P21: ");
+        if(P21!=-1&&P21!=-2){
+          display.println(P21);
+        }else if (P21==-1){
+          display.println("CCF");
+        }else if (P21==-2){
+          display.println("CF");
+        }
+        display.println("CF=Connection Failed");
+        display.println("CCF=Check Code Failed");
         display.display();
         portTrack=0;
         done=false;
@@ -192,76 +218,95 @@ void loop() {
 void portSelect(int select){
   if (select==0){//P19
   digitalWrite(MUX_INH,HIGH);
+
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+
   }else if (select==1){//P20
   digitalWrite(MUX_INH,HIGH);
-  digitalWrite(UART_EN,LOW);//remove?
+ 
+  //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,HIGH);
   digitalWrite(UMUX_A,LOW);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+
   }else if (select==2){//P21
   digitalWrite(MUX_INH,HIGH);
+
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,HIGH);
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+ 
   }else if (select==3){//P14
   digitalWrite(MUX_INH,HIGH);
+ 
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,LOW);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,LOW);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+ 
   }else if (select==4){//P15
   digitalWrite(MUX_INH,HIGH);
+  
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,LOW);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  
   }else if (select==5){//P16
   digitalWrite(MUX_INH,HIGH);
+  
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,LOW);
   digitalWrite(UMUX_B,HIGH);
   digitalWrite(UMUX_A,LOW);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  
   }else if (select==6){//P17
   digitalWrite(MUX_INH,HIGH);
+  
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,LOW);
   digitalWrite(UMUX_B,HIGH);
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  
   }else if (select==7){//P18
   digitalWrite(MUX_INH,HIGH);
+  
   //digitalWrite(UART_EN,LOW);//remove?
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,LOW);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  
   }
 }
-
-void testSensor(){
+/*
+PMS7003 ports are P14,P15,P18,P19
+CO2 ports are P16,P17,P20,P21
+*/
+void pmsSensor(){
   if (newPort==true){
-    timeSinceStart=millis();
-    timeLimit=timeSinceStart+3000;
-    newPort=false;
+  timeSinceStart=millis();
+  timeLimit=timeSinceStart+3000;
+  newPort=false;
   }
   //timeSinceStart=millis();
   if(millis()>timeLimit&&safety==false){
@@ -288,15 +333,17 @@ void testSensor(){
       P18=-2;
     }
   }
-  if (multiplex.available()){  
-    int data =multiplex.read();
-    for (int i =0;i<32;i++){
-      Serial.println(dataArray[i]);
-    }
-    Serial.print("Data: ");
-    Serial.println(data);
-    Serial.print("portTrack: ");
-    Serial.println(portTrack);
+  if (multiplex.available()){
+    int data =multiplex.read();  
+    /*if (portTrack==3||portTrack==4){
+      for (int i =0;i<32;i++){
+        Serial.println(dataArray[i]);
+      }
+      Serial.print("Data: ");
+      Serial.println(data);
+      Serial.print("portTrack: ");
+      Serial.println(portTrack);
+      }*/
     if (data==66&&safety==false){//detected first starting byte but it might be a false alarm
       waitFor77=true;
     }
@@ -395,3 +442,73 @@ void testSensor(){
       newPort=true;
     }
 }}
+
+void co2Sensor(){
+  Serial.print("portTrack=");
+  Serial.println(portTrack);
+  decide=false;
+  askOnce=false;
+  while (decide==false){
+    if (askOnce==false){
+      Serial.println("Do you want to turn on self-calibration function? If yes enter y, else enter any key.");
+      askOnce=true;
+    }
+    if (Serial.available()>0){
+      Choice=Serial.readStringUntil('\n');
+      decide=true;
+    }
+  }
+
+  if (Choice=="y"){
+    multiplex.write(turnOnCalib,9);
+    Serial.println("choice A");
+  }else{
+    multiplex.write(turnOffCalib,9);
+    Serial.println("choice B");
+  }
+
+
+  multiplex.write(getData,9);
+
+  unsigned long startTime=millis();
+  while (multiplex.available()<9){
+    if (millis()-startTime>1500){
+      Serial.println("TIMEOUT");
+      while(multiplex.available()){
+        multiplex.read();
+      }
+      delay(5000);
+      done=true;
+      newPort=true;
+      return;
+      
+    }
+    delay(10);
+  }
+
+  byte dataResponse[9];
+  for (int i =0;i<9;i++){
+    dataResponse[i]=multiplex.read();
+  }
+
+  //i have the data now verify data integrity
+  byte checkSum =0;
+  for (int i =1;i<8;i++){
+    checkSum=checkSum+dataResponse[i];
+  }
+  checkSum=0xFF-checkSum;
+  checkSum++;
+  Serial.print("checksum calc: ");
+  Serial.println(checkSum);
+  Serial.print("checksum val: ");
+  Serial.println(int(dataResponse[8]));
+  for (int i =0;i<9;i++){
+    Serial.println(dataResponse[i]);
+  }
+
+  //print CO2 result
+  Serial.print("CO2 concen=");
+  Serial.print((int(dataResponse[2])*256)+int(dataResponse[3]));
+  done=true;
+  newPort=true;
+}
