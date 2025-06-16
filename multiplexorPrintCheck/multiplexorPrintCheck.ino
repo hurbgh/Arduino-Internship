@@ -84,11 +84,14 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   //if (multiplex.available()){
+    if (portTrack==8){
+      done=true;
+    }
     if (done==false){
       if (portTrack==3||portTrack==4||portTrack==7||portTrack==0){
         pmsSensor();
       }
-      else{
+      else if (portTrack==5||portTrack==6||portTrack==1||portTrack==2){
         co2Sensor();
       }
     }else{
@@ -474,6 +477,14 @@ void co2Sensor(){
   while (multiplex.available()<9){
     if (millis()-startTime>1500){
       Serial.println("TIMEOUT");
+      if (portTrack==5){
+        P16=-1;
+      }else if (portTrack==6){
+        P17=-1;
+      }else if (portTrack==1){
+        P20=-1;
+      }else if (portTrack==2){
+        P21=-1;}    
       while(multiplex.available()){
         multiplex.read();
       }
@@ -481,7 +492,6 @@ void co2Sensor(){
       done=true;
       newPort=true;
       return;
-      
     }
     delay(10);
   }
@@ -498,17 +508,28 @@ void co2Sensor(){
   }
   checkSum=0xFF-checkSum;
   checkSum++;
-  Serial.print("checksum calc: ");
-  Serial.println(checkSum);
-  Serial.print("checksum val: ");
-  Serial.println(int(dataResponse[8]));
-  for (int i =0;i<9;i++){
-    Serial.println(dataResponse[i]);
+  if (checkSum==int(dataResponse[8])){
+    if (portTrack==5){
+      P16=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    }else if (portTrack==6){
+      P17=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    }else if (portTrack==1){
+      P20=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    }else if (portTrack==2){
+      P21=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    }
+  }else{
+    if (portTrack==5){
+      P16=-1;
+    }else if (portTrack==6){
+      P17=-1;
+    }else if (portTrack==1){
+      P20=-1;
+    }else if (portTrack==2){
+      P21=-1;
+    }    
   }
 
-  //print CO2 result
-  Serial.print("CO2 concen=");
-  Serial.print((int(dataResponse[2])*256)+int(dataResponse[3]));
   done=true;
   newPort=true;
 }
