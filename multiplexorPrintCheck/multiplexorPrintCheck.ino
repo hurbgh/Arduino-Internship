@@ -21,8 +21,8 @@ HardwareSerial multiplex(2);//using UART2
 bool waitFor77=false;//this is a boolean variable for waiting for the next code to confirm it should start recording
 bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data
 int dataArray[32];//array to store all integers
-int position=1;
-bool checkSum=false;
+int position=1;//integer variable to keep track of position in array
+bool checkSum=false;//check sum checking boolean variable
 
 int portTrack=0;//this is to know which port to test and changes to test each other port
 bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
@@ -72,7 +72,7 @@ void setup() {
   pinMode(UART_EN,OUTPUT);
   digitalWrite(MUX_INH,HIGH);
  
-  //digitalWrite(UART_EN,LOW);//remove?
+ 
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,HIGH);
@@ -83,7 +83,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  //if (multiplex.available()){
+
     if (portTrack==8){
       done=true;
     }
@@ -470,6 +470,10 @@ void co2Sensor(){
     Serial.println("choice B");
   }
 
+  while (multiplex.available()) {
+    multiplex.read();
+  }
+  delay(50);
 
   multiplex.write(getData,9);
 
@@ -478,13 +482,13 @@ void co2Sensor(){
     if (millis()-startTime>1500){
       Serial.println("TIMEOUT");
       if (portTrack==5){
-        P16=-1;
+        P16=-2;
       }else if (portTrack==6){
-        P17=-1;
+        P17=-2;
       }else if (portTrack==1){
-        P20=-1;
+        P20=-2;
       }else if (portTrack==2){
-        P21=-1;}    
+        P21=-2;}    
       while(multiplex.available()){
         multiplex.read();
       }
@@ -505,6 +509,9 @@ void co2Sensor(){
   byte checkSum =0;
   for (int i =1;i<8;i++){
     checkSum=checkSum+dataResponse[i];
+  }
+  for (int i =0;i<9;i++){
+    Serial.println(dataResponse[i]);
   }
   checkSum=0xFF-checkSum;
   checkSum++;
