@@ -218,88 +218,28 @@ void loop() {
   portTrack 6 = P17
   portTrack 7 = P18
   */
+
+uint8_t uart_port[8][3] = {
+    // C, B, A
+    {HIGH, LOW, HIGH}, //portTrack 0
+    {HIGH, HIGH, LOW}, //portTrack 1
+    {HIGH, HIGH, HIGH},//portTrack 2
+    {LOW, LOW, LOW},//portTrack 3
+    {LOW, LOW, HIGH},//portTrack 4
+    {LOW, HIGH, LOW},//portTrack 5
+    {LOW, HIGH, HIGH},//portTrack 6
+    {HIGH, LOW, LOW},//portTrack 7
+};
+
 void portSelect(int select){
-  if (select==0){//P19
   digitalWrite(MUX_INH,HIGH);
+  
+  digitalWrite(UMUX_C, uart_port[select][0]);
+  digitalWrite(UMUX_B, uart_port[select][1]);
+  digitalWrite(UMUX_A, uart_port[select][2]);
 
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,HIGH);
-  digitalWrite(UMUX_B,LOW);
-  digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
-
-  }else if (select==1){//P20
-  digitalWrite(MUX_INH,HIGH);
- 
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,HIGH);
-  digitalWrite(UMUX_B,HIGH);
-  digitalWrite(UMUX_A,LOW);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
-
-  }else if (select==2){//P21
-  digitalWrite(MUX_INH,HIGH);
-
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,HIGH);
-  digitalWrite(UMUX_B,HIGH);
-  digitalWrite(UMUX_A,HIGH);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
- 
-  }else if (select==3){//P14
-  digitalWrite(MUX_INH,HIGH);
- 
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,LOW);
-  digitalWrite(UMUX_B,LOW);
-  digitalWrite(UMUX_A,LOW);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
- 
-  }else if (select==4){//P15
-  digitalWrite(MUX_INH,HIGH);
-  
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,LOW);
-  digitalWrite(UMUX_B,LOW);
-  digitalWrite(UMUX_A,HIGH);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
-  
-  }else if (select==5){//P16
-  digitalWrite(MUX_INH,HIGH);
-  
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,LOW);
-  digitalWrite(UMUX_B,HIGH);
-  digitalWrite(UMUX_A,LOW);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
-  
-  }else if (select==6){//P17
-  digitalWrite(MUX_INH,HIGH);
-  
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,LOW);
-  digitalWrite(UMUX_B,HIGH);
-  digitalWrite(UMUX_A,HIGH);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
-  
-  }else if (select==7){//P18
-  digitalWrite(MUX_INH,HIGH);
-  
-  //digitalWrite(UART_EN,LOW);//remove?
-  digitalWrite(UMUX_C,HIGH);
-  digitalWrite(UMUX_B,LOW);
-  digitalWrite(UMUX_A,LOW);
-  digitalWrite(UART_EN,HIGH);
-  digitalWrite(MUX_INH,LOW);
-  
-  }
 }
 /*
 PMS7003 ports are P14,P15,P18,P19
