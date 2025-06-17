@@ -27,15 +27,8 @@ bool checkSum=false;//check sum checking boolean variable
 int portTrack=0;//this is to know which port to test and changes to test each other port
 bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
 
-//integer variables to store all the data
-int P19=0;
-int P20=0;
-int P21=0;
-int P14=0;
-int P15=0;
-int P16=0;
-int P17=0;
-int P18=0;
+//integer array to store all the data collected from the ports that have PMS7003 connected to them
+int pmsPortArray[8];
 
 //the following are for helping detect if a port does not have a sensor connected to it
 unsigned long timeSinceStart;//starts recording time
@@ -112,6 +105,8 @@ void loop() {
         display.print("CO2");
         display.setCursor(0, 10);
 
+        print_reading("P14: ",pmsPortArray[3]);
+/*
         display.print("P14: ");
         if(P14!=-1&&P14!=-2){
           display.print(P14);
@@ -119,9 +114,11 @@ void loop() {
           display.print("CCF");
         }else if (P14==-2){
           display.print("CF");
-        }
+        }*/
 
         display.setCursor(60, 10);
+        print_reading("P16: ",pmsPortArray[5]);
+        /*
         display.print("P16: ");
         if (P16!=-1&&P16!=-2){
           display.print(P16);
@@ -129,11 +126,13 @@ void loop() {
           display.print("CCF");
         } else if (P16==-2){
           display.print("CF");
-        }        
+        }        */
         
 
 
         display.setCursor(0, 20);
+        print_reading("P15: ",pmsPortArray[4]);
+        /*
         display.print("P15: ");
         if(P15!=-1&&P15!=-2){
           display.print(P15);
@@ -141,10 +140,11 @@ void loop() {
           display.print("CCF");
         }else if (P15==-2){
           display.print("CF");
-        }        
+        }        */
    
         display.setCursor(60, 20);
-       
+        print_reading("P17: ",pmsPortArray[6]);
+       /*
         display.print("P17: ");
         if(P17!=-1&&P17!=-2){
           display.print(P17);
@@ -152,18 +152,22 @@ void loop() {
           display.print("CCF");
         }else if (P17==-2){
           display.print("CF");
-        }     
+        }     */
         display.setCursor(0, 30);
         
-        display.print("P18: ");
+        print_reading("P18: ",pmsPortArray[7]);
+/*
         if(P18!=-1&&P18!=-2){
           display.print(P18);
         }else if (P18==-1){
           display.print("CCF");
         }else if (P18==-2){
           display.print("CF");
-        }     
+        }     */
+
         display.setCursor(60, 30);
+        print_reading("P20: ",pmsPortArray[1]);
+        /*
         display.print("P20: ");
         if (P20!=-1&&P20!=-2){
           display.print(P20);
@@ -171,10 +175,12 @@ void loop() {
           display.print("CCF");
         }else if (P20==-2){
           display.print("CF");
-        }       
+        }       */
 
         
         display.setCursor(0, 40);
+        print_reading("P19: ",pmsPortArray[0]);
+        /*
         display.print("P19: ");
         if(P19!=-1&&P19!=-2){
           display.print(P19);
@@ -182,10 +188,10 @@ void loop() {
           display.print("CCF");
         }else if (P19==-2){
           display.print("CF");
-        }
+        }*/
         display.setCursor(60, 40);
-       
-        
+        print_reading("P21: ",pmsPortArray[2]);
+        /*
         display.print("P21: ");
         if(P21!=-1&&P21!=-2){
           display.println(P21);
@@ -193,7 +199,8 @@ void loop() {
           display.println("CCF");
         }else if (P21==-2){
           display.println("CF");
-        }
+        }*/
+        display.println("");
         display.println("CF=Connection Failed");
         display.println("CCF=Check Code Failed");
         display.display();
@@ -258,6 +265,8 @@ void pmsSensor(){
     done=true;
     newPort=true;
     waitFor77=false;
+    pmsPortArray[portTrack]=-2;
+    /*
     if (portTrack==0){
       P19=-2;
     }else if(portTrack==1){
@@ -274,7 +283,7 @@ void pmsSensor(){
       P17=-2;
     }else if (portTrack==7){
       P18=-2;
-    }
+    }*/
   }
   if (multiplex.available()){
     int data =multiplex.read();  
@@ -325,7 +334,12 @@ void pmsSensor(){
       }else{
         checkSum=false;
       }
-
+      if (checkSum){
+        pmsPortArray[portTrack]=(dataArray[6]*256)+dataArray[7];
+      }else{
+        pmsPortArray[portTrack]=-1;
+      }
+      /*
       if (portTrack==0){//portTrack 0 = P19
         if (checkSum!=false){
           P19=(dataArray[6]*256)+dataArray[7];
@@ -378,7 +392,7 @@ void pmsSensor(){
           P18=-1;
         }
         
-      }
+      }*/
       safety=false;
       position=1;
       done=true;
@@ -421,6 +435,8 @@ void co2Sensor(){
   while (multiplex.available()<9){
     if (millis()-startTime>1500){
       Serial.println("TIMEOUT");
+      pmsPortArray[portTrack]=-2;
+      /*
       if (portTrack==5){
         P16=-2;
       }else if (portTrack==6){
@@ -428,7 +444,7 @@ void co2Sensor(){
       }else if (portTrack==1){
         P20=-2;
       }else if (portTrack==2){
-        P21=-2;}    
+        P21=-2;}*/    
       while(multiplex.available()){
         multiplex.read();
       }
@@ -456,6 +472,8 @@ void co2Sensor(){
   checkSum=0xFF-checkSum;
   checkSum++;
   if (checkSum==int(dataResponse[8])){
+    pmsPortArray[portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    /*
     if (portTrack==5){
       P16=(int(dataResponse[2])*256)+int(dataResponse[3]);
     }else if (portTrack==6){
@@ -464,8 +482,10 @@ void co2Sensor(){
       P20=(int(dataResponse[2])*256)+int(dataResponse[3]);
     }else if (portTrack==2){
       P21=(int(dataResponse[2])*256)+int(dataResponse[3]);
-    }
+    }*/
   }else{
+    pmsPortArray[portTrack]=-1;
+    /*
     if (portTrack==5){
       P16=-1;
     }else if (portTrack==6){
@@ -474,9 +494,21 @@ void co2Sensor(){
       P20=-1;
     }else if (portTrack==2){
       P21=-1;
-    }    
+    }   */ 
   }
 
   done=true;
   newPort=true;
+}
+
+void print_reading(char *title, int val)
+{
+  display.print(title);
+  if (val==-1){
+    display.print("CF");
+  }else if(val==-2){
+    display.print("CCF");
+  }else{
+    display.print(val);
+  }
 }
