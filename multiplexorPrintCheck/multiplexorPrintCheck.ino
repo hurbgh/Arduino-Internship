@@ -18,6 +18,7 @@ const int UART_EN = 15;//port where enable wire connects
 #define TX 18//the port where TX wire connects
 #define RX 19//the port where RX wire connects
 HardwareSerial multiplex(2);//using UART2
+
 //variables used by pmsSensor() to get PMS7003 data
 bool waitFor77=false;//when the program reads 66, the first starting byte, it gets ready for the next byte, if the next byte is 77 it then starts recording, else this variable becomes false
 bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data preventing bytes similar to starting bytes from causing the program to overwrite
@@ -40,8 +41,9 @@ byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};//this byte array
 byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};//this byte array is used to tell the sensor to turn on self calibration
 byte turnOffCalib[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};//this byte array is used to tell the sensor to turn off self calibration
 bool decide=false;//this boolean variable is used to keep track of whether the user has decided yet on turning off or on the self calibration
-bool askOnce=false;//this is to make sure the user only got the question prompt once
+bool askForEach=false;//this is to make sure the user only got the question prompt once for each port
 String Choice="";//the users choice is stored here
+bool co2PortChoice[4];
 
 void setup() {
   Serial.begin(115200);
@@ -62,6 +64,63 @@ void setup() {
   pinMode(UMUX_B,OUTPUT);
   pinMode(UMUX_C,OUTPUT);
   pinMode(UART_EN,OUTPUT);
+
+ /*
+  for (int i=0;i<4;i++){//iterate through an array
+    decide=false;//once the decision is made exit the while loop
+    askForEach=false;//so that I do not ask more than one time for each port
+    while (decide==false){
+      if (askForEach==false){
+        Serial.print("Do you want to turn on self-calibration function for MH-Z16 sensor connected to port ");
+        if (i==0){
+          Serial.print("P16? ");
+        }else if (i==1){
+          Serial.print("P17? ");
+        }else if (i==2){
+          Serial.print("P20? ");
+        }else{
+          Serial.print("P21? ");
+        }
+        Serial.println("If yes enter the key y, else enter any key.");
+        askForEach=true;
+      }
+      if (Serial.available()>0){
+        Choice=Serial.readStringUntil('\n');
+        Choice.trim();
+        decide=true;
+      }
+    }
+    if (Choice.equalsIgnoreCase("y")){
+      co2PortChoice[i]=true;
+      Serial.println("User selected on");
+    }else{
+      co2PortChoice[i]=false;
+      Serial.println("User Selected off");
+    }
+  }*/
+  //add a time out for ten seconds for user decision
+  //decrease delay to screen
+  //read and then update instantly, indicate which port will be read next! show with an arrow
+
+  for (int i =0;i<4;i++){
+    //Select port
+    if (i==0){//P16
+      portSelect(5);
+    }else if (i==1){//P17
+      portSelect(6);
+    }else if(i==2){//P20
+      portSelect(1);
+    }else{//P21
+      portSelect(2);
+    }
+    //based on value execute either turn on or turn off command
+    if (co2PortChoice[i]==true){
+      multiplex.write(turnOnCalib,9);
+    }else{
+      multiplex.write(turnOffCalib,9);
+    }
+  }
+
   digitalWrite(MUX_INH,HIGH);
  
  
@@ -177,7 +236,7 @@ CO2 ports are P16,P17,P20,P21
 void pmsSensor(){
   if (newPort==true){
   timeSinceStart=millis();
-  timeLimit=timeSinceStart+3000;
+  timeLimit=timeSinceStart+1000;
   newPort=false;
   }
   //timeSinceStart=millis();
@@ -187,7 +246,7 @@ void pmsSensor(){
     done=true;
     newPort=true;
     waitFor77=false;
-    displayArray[portTrack]=-2;
+    displayArray[portTrack]=-1;
   }
   if (multiplex.available()){
     int data =multiplex.read();  
@@ -232,7 +291,7 @@ void pmsSensor(){
       if (checkSum){
         displayArray[portTrack]=(dataArray[6]*256)+dataArray[7];
       }else{
-        displayArray[portTrack]=-1;
+        displayArray[portTrack]=-2;
       }
       safety=false;
       position=1;
@@ -244,48 +303,28 @@ void pmsSensor(){
 void co2Sensor(){
   Serial.print("portTrack=");
   Serial.println(portTrack);
-  decide=false;
-  askOnce=false;
-  while (decide==false){
-    if (askOnce==false){
-      Serial.println("Do you want to turn on self-calibration function? If yes enter y, else enter any key.");
-      askOnce=true;
-    }
-    if (Serial.available()>0){
-      Choice=Serial.readStringUntil('\n');
-      decide=true;
-    }
-  }
-
-  if (Choice=="y"){//the user is asked if they want to turn the self-calibration function on or off, the appropriate bytes are sent to the snesor based on the decision
-    multiplex.write(turnOnCalib,9);
-    Serial.println("self-calibration function turned on");
-  }else{
-    multiplex.write(turnOffCalib,9);
-    Serial.println("self-calibration function turned off");
-  }
 
   while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
     multiplex.read();
+    delay(1);
   }
-  delay(50);
+  //delay(50);
 
   multiplex.write(getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
 
   unsigned long startTime=millis();
   while (multiplex.available()<9){
-    if (millis()-startTime>1500){
+    if (millis()-startTime>1000){
       Serial.println("TIMEOUT");
-      displayArray[portTrack]=-2;   
-      while(multiplex.available()){
+      displayArray[portTrack]=-1;   
+      /*while(multiplex.available()){
         multiplex.read();
-      }
-      delay(5000);
+      }*/
       done=true;
       newPort=true;
       return;
     }
-    delay(10);
+    //delay(10);
   }
 
   byte dataResponse[9];
@@ -303,12 +342,18 @@ void co2Sensor(){
   }
   checkSum=0xFF-checkSum;
   checkSum++;
-  if (checkSum==int(dataResponse[8])){
+  if (int(dataResponse[0])==255&&int(dataResponse[1])==134&&int(dataResponse[2])*256+int(dataResponse[3])<2001){
+    /*this if statement above this comment is a bug fix, for some reason when CO2 sensors are unplugged, the port still sends data that gets read and returns either a 
+    massive number or a check code failed error. this makes sure that the first two important values are present in the array for reading and the data is not greater than the largest
+    possible. after this check it proceeds onwards*/
+    if (checkSum==int(dataResponse[8])){
     displayArray[portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    }else{
+      displayArray[portTrack]=-2;
+    }
   }else{
     displayArray[portTrack]=-1;
   }
-
   done=true;
   newPort=true;
 }
