@@ -40,8 +40,8 @@ bool newPort=true;//boolean variable to know when to record end time for timeLim
 byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};//this byte array is used to tell the sensor to send data
 byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};//this byte array is used to tell the sensor to turn on self calibration
 byte turnOffCalib[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};//this byte array is used to tell the sensor to turn off self calibration
-bool decide=false;//this boolean variable is used to keep track of whether the user has decided yet on turning off or on the self calibration
 bool askForEach=false;//this is to make sure the user only got the question prompt once for each port
+bool decide=false;
 String Choice="";//the users choice is stored here
 bool co2PortChoice[4];
 
@@ -65,10 +65,12 @@ void setup() {
   pinMode(UMUX_C,OUTPUT);
   pinMode(UART_EN,OUTPUT);
 
- /*
+  unsigned long timeAtStart;
+  bool timeExceeded=false;
   for (int i=0;i<4;i++){//iterate through an array
     decide=false;//once the decision is made exit the while loop
     askForEach=false;//so that I do not ask more than one time for each port
+    timeAtStart=millis();
     while (decide==false){
       if (askForEach==false){
         Serial.print("Do you want to turn on self-calibration function for MH-Z16 sensor connected to port ");
@@ -84,11 +86,19 @@ void setup() {
         Serial.println("If yes enter the key y, else enter any key.");
         askForEach=true;
       }
+      /*if the user gives no input for ten seconds the program will move on.*/
+      if (millis()-timeAtStart>10000){
+        timeExceeded=true;
+        return;
+      }
       if (Serial.available()>0){
         Choice=Serial.readStringUntil('\n');
         Choice.trim();
         decide=true;
       }
+    }
+    if (timeExceeded==true){
+      return;
     }
     if (Choice.equalsIgnoreCase("y")){
       co2PortChoice[i]=true;
@@ -97,8 +107,7 @@ void setup() {
       co2PortChoice[i]=false;
       Serial.println("User Selected off");
     }
-  }*/
-  //add a time out for ten seconds for user decision
+  }
   //decrease delay to screen
   //read and then update instantly, indicate which port will be read next! show with an arrow
 
