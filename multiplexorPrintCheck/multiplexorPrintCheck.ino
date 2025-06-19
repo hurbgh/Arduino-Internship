@@ -67,6 +67,7 @@ void setup() {
 
   unsigned long timeAtStart;
   bool timeExceeded=false;
+  Serial.println("If you want to maintain current settings and not change anyhting then just wait ten seconds.");
   for (int i=0;i<4;i++){//iterate through an array
     decide=false;//once the decision is made exit the while loop
     askForEach=false;//so that I do not ask more than one time for each port
@@ -86,7 +87,9 @@ void setup() {
         Serial.println("If yes enter the key y, else enter any key.");
         askForEach=true;
       }
-      /*if the user gives no input for ten seconds the program will move on.*/
+      /*if the user gives no input for ten seconds the program will move on.
+      this is intended to help customize which sensor for which port whille have
+      self-calibration function on or off. if the user wants to maintain defaults just wait ten seconds*/
       if (millis()-timeAtStart>10000){
         timeExceeded=true;
         return;
@@ -109,7 +112,6 @@ void setup() {
     }
   }
   //decrease delay to screen
-  //read and then update instantly, indicate which port will be read next! show with an arrow
 
   for (int i =0;i<4;i++){
     //Select port
@@ -142,9 +144,6 @@ void setup() {
 }
 
 void loop() {
-  if (portTrack==8){
-    done=true;//this condition prevents the program from trying to read from portTrack 8, which doesn't exist and is used asa condition to print all data and reset
-  }
   if (done==false){
     if (portTrack==3||portTrack==4||portTrack==7||portTrack==0){
       pmsSensor();//if currently at the ports intended for PMS sensors, use the function intended for those sensors
@@ -153,56 +152,84 @@ void loop() {
       co2Sensor();//if currently at the ports intended for CO2 sensors, use the function intended for those sensors
     }
   }else{
-    if (portTrack>=0&&portTrack<=7){
-      portTrack++;//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
-      done=false;//set done to false because I have to read a new port
-      portSelect(portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
-      while (multiplex.available()) { multiplex.read(); };//clear buffer
-      //reset variables
-      waitFor77=false;
-      safety=false;
-      position=1;
-      newPort=true;
-    }else if (portTrack==8){
-      display.clearDisplay();
-      display.setCursor(0,0);
-      display.print("PM2.5");
-      display.setCursor(60,0);
-      display.print("|");
-      display.print("CO2");
-      display.setCursor(0, 10);
-      print_reading("P14: ",displayArray[3]);
-      display.setCursor(60, 10);
-      display.print("|");
-      print_reading("P16: ",displayArray[5]);
-      display.setCursor(0, 20);
-      print_reading("P15: ",displayArray[4]);
-      display.setCursor(60, 20);
-      display.print("|");
-      print_reading("P17: ",displayArray[6]);
-      display.setCursor(0, 30);
-      print_reading("P18: ",displayArray[7]);
-      display.setCursor(60, 30);
-      display.print("|");
-      print_reading("P20: ",displayArray[1]);
-      display.setCursor(0, 40);
-      print_reading("P19: ",displayArray[0]);
-      display.setCursor(60, 40);
-      display.print("|");
-      print_reading("P21: ",displayArray[2]);
-      display.println("");
-      display.println("CF=Connection Failed");
-      display.println("CCF=Check Code Failed");
-      display.display();
+    portTrack++;//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
+    if (portTrack==8){
       portTrack=0;
-      done=false;
-      portSelect(portTrack);//resets portTrack and executes code to select the first port
-      while (multiplex.available()) { multiplex.read(); }
-      waitFor77=false;
-      safety=false;
-      position=1;
-      newPort=true;
     }
+    done=false;//set done to false because I have to read a new port
+    portSelect(portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
+    while (multiplex.available()) { multiplex.read(); };//clear buffer
+    //reset variables
+    waitFor77=false;
+    safety=false;
+    position=1;
+    newPort=true;
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("PM2.5");
+    display.setCursor(55,0);
+    display.print("|");
+    display.print("CO2");
+
+    display.setCursor(0, 10);
+    print_reading("P14:",displayArray[3]);
+    if (portTrack==3){
+      display.setCursor(49, 10);
+      display.print("<");
+    }
+    display.setCursor(55, 10);
+    display.print("|");
+    print_reading("P16:",displayArray[5]);
+    if (portTrack==5){
+      display.setCursor(120, 10);
+      display.print("<");
+    }
+    display.setCursor(0, 20);
+    print_reading("P15:",displayArray[4]);
+    if (portTrack==4){
+      display.setCursor(49, 20);
+      display.print("<");
+    }
+    display.setCursor(55, 20);
+    display.print("|");
+    print_reading("P17:",displayArray[6]);
+    if (portTrack==6){
+      display.setCursor(120, 20);
+      display.print("<");
+    }
+    display.setCursor(0, 30);
+    print_reading("P18:",displayArray[7]);
+    if (portTrack==7){
+      display.setCursor(49, 30);
+      display.print("<");
+    }
+    display.setCursor(55, 30);
+    display.print("|");
+    print_reading("P20:",displayArray[1]);
+    if (portTrack==1){
+      display.setCursor(120, 30);
+      display.print("<");
+    }
+    display.setCursor(0, 40);
+    print_reading("P19:",displayArray[0]);
+    if (portTrack==0){
+      display.setCursor(49, 40);
+      display.print("<");
+    }
+    display.setCursor(55, 40);
+    display.print("|");
+    print_reading("P21:",displayArray[2]);
+    if (portTrack==2){
+      display.setCursor(120, 40);
+      display.print("<");
+    }
+    display.setCursor(0, 48);
+    display.println("CF=Connection Failed");
+    //display.setCursor(0, 60);
+    display.print("CCF=Check Code Failed");
+    display.display();
+    portSelect(portTrack);//resets portTrack and executes code to select the first port
+    while (multiplex.available()) { multiplex.read(); }
   }
 }
 
@@ -310,9 +337,6 @@ void pmsSensor(){
 }}
 
 void co2Sensor(){
-  Serial.print("portTrack=");
-  Serial.println(portTrack);
-
   while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
     multiplex.read();
     delay(1);
@@ -324,7 +348,6 @@ void co2Sensor(){
   unsigned long startTime=millis();
   while (multiplex.available()<9){
     if (millis()-startTime>1000){
-      Serial.println("TIMEOUT");
       displayArray[portTrack]=-1;   
       /*while(multiplex.available()){
         multiplex.read();
@@ -345,9 +368,6 @@ void co2Sensor(){
   byte checkSum =0;
   for (int i =1;i<8;i++){
     checkSum=checkSum+dataResponse[i];
-  }
-  for (int i =0;i<9;i++){
-    Serial.println(dataResponse[i]);
   }
   checkSum=0xFF-checkSum;
   checkSum++;
