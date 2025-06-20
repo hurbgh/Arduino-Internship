@@ -111,8 +111,6 @@ void setup() {
       Serial.println("User Selected off");
     }
   }
-  //decrease delay to screen
-
   for (int i =0;i<4;i++){
     //Select port
     if (i==0){//P16
@@ -318,7 +316,6 @@ void pmsSensor(){
       for(int i =0;i<30;i++){
         sumForCheck=sumForCheck+dataArray[i];
       }
-      display.clearDisplay();
       if (checkCode==sumForCheck){
         checkSum=true;
       }else{
