@@ -339,9 +339,9 @@ void pmsSensor(){
 void co2Sensor(){
   while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
     multiplex.read();
-    delay(1);
+
   }
-  //delay(50);
+
 
   multiplex.write(getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
 
@@ -356,7 +356,7 @@ void co2Sensor(){
       newPort=true;
       return;
     }
-    //delay(10);
+
   }
 
   byte dataResponse[9];
