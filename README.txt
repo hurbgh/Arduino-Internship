@@ -1,0 +1,1 @@
+the actual program is multiplexorPrintCheck. The programs pmsArrayWorks and screenDisplay are programs I wrote to understand how to accomplish specific taks first before making the final program called multiplexorPrintCheck. 

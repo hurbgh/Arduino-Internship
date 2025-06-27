@@ -1,10 +1,16 @@
-//initialize screen
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
+#define CF -1
+#define CCF -2
+#define STR(x) #x
+#define STRINGIFY(x) STR(x)
+#define TX 18//the port where TX wire connects
+#define RX 19//the port where RX wire connects
+
 Adafruit_SSD1306 display(SCREEN_WIDTH,SCREEN_HEIGHT,&Wire,OLED_RESET);
 
 //defining ports to be used by the multiplexer
@@ -14,9 +20,20 @@ const int UMUX_B = 16;
 const int UMUX_C = 17;
 const int UART_EN = 15;//port where enable wire connects
 
+enum Port {
+  PORT_MIN=0,
+  PORT_PM_P19 = PORT_MIN,
+  PORT_CO2_P20 = 1,
+  PORT_CO2_P21 = 2,
+  PORT_PM_P14 = 3,
+  PORT_PM_P15 = 4,
+  PORT_CO2_P16 = 5,
+  PORT_CO2_P17 = 6,
+  PORT_PM_P18 = 7,
+  PORT_MAX = 8
+};
+
 //defining ports to be used by the UART2
-#define TX 18//the port where TX wire connects
-#define RX 19//the port where RX wire connects
 HardwareSerial multiplex(2);//using UART2
 
 //variables used by pmsSensor() to get PMS7003 data
@@ -26,7 +43,7 @@ int dataArray[32];//array to store all integers
 int position=1;//integer variable to keep track of position in array
 bool checkSum=false;//check sum checking boolean variable, it is false if the calculated check sum does not equal the value it is supposed to be
 
-int portTrack=0;//this is to know which port to test and changes to test each other port
+enum Port portTrack = PORT_PM_P19;//this is to know which port to test and changes to test each other port
 bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
 
 int displayArray[8];//this array stores the values that will show on the display screen unlike the dataArray which stores all the data it got from a PMS7003 sensor
@@ -44,6 +61,13 @@ bool askForEach=false;//this is to make sure the user only got the question prom
 bool decide=false;
 String Choice="";//the users choice is stored here
 bool co2PortChoice[4];
+
+//function declarations
+void portSelect(int select);
+void pmsSensor();
+void co2Sensor();
+void print_reading(char *title, int val);
+void renderDisplay();
 
 void setup() {
   Serial.begin(115200);
@@ -114,13 +138,13 @@ void setup() {
   for (int i =0;i<4;i++){
     //Select port
     if (i==0){//P16
-      portSelect(5);
+      portSelect(PORT_CO2_P16);
     }else if (i==1){//P17
-      portSelect(6);
+      portSelect(PORT_CO2_P17);
     }else if(i==2){//P20
-      portSelect(1);
+      portSelect(PORT_CO2_P20);
     }else{//P21
-      portSelect(2);
+      portSelect(PORT_CO2_P21);
     }
     //based on value execute either turn on or turn off command
     if (co2PortChoice[i]==true){
@@ -143,16 +167,16 @@ void setup() {
 
 void loop() {
   if (done==false){
-    if (portTrack==3||portTrack==4||portTrack==7||portTrack==0){
+    if (portTrack==PORT_PM_P19||portTrack==PORT_PM_P14||portTrack==PORT_PM_P15||portTrack==PORT_PM_P18){
       pmsSensor();//if currently at the ports intended for PMS sensors, use the function intended for those sensors
     }
-    else if (portTrack==5||portTrack==6||portTrack==1||portTrack==2){
+    else if (portTrack==PORT_CO2_P20||portTrack==PORT_CO2_P21||portTrack==PORT_CO2_P16||portTrack==PORT_CO2_P17){
       co2Sensor();//if currently at the ports intended for CO2 sensors, use the function intended for those sensors
     }
   }else{
-    portTrack++;//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
-    if (portTrack==8){
-      portTrack=0;
+    portTrack = static_cast<Port>(static_cast<int>(portTrack) + 1);//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
+    if (portTrack==PORT_MAX){
+      portTrack=PORT_MIN;
     }
     done=false;//set done to false because I have to read a new port
     portSelect(portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
@@ -162,95 +186,22 @@ void loop() {
     safety=false;
     position=1;
     newPort=true;
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.print("PM2.5");
-    display.setCursor(55,0);
-    display.print("|");
-    display.print("CO2");
-
-    display.setCursor(0, 10);
-    print_reading("P14:",displayArray[3]);
-    if (portTrack==3){
-      display.setCursor(49, 10);
-      display.print("<");
-    }
-    display.setCursor(55, 10);
-    display.print("|");
-    print_reading("P16:",displayArray[5]);
-    if (portTrack==5){
-      display.setCursor(120, 10);
-      display.print("<");
-    }
-    display.setCursor(0, 20);
-    print_reading("P15:",displayArray[4]);
-    if (portTrack==4){
-      display.setCursor(49, 20);
-      display.print("<");
-    }
-    display.setCursor(55, 20);
-    display.print("|");
-    print_reading("P17:",displayArray[6]);
-    if (portTrack==6){
-      display.setCursor(120, 20);
-      display.print("<");
-    }
-    display.setCursor(0, 30);
-    print_reading("P18:",displayArray[7]);
-    if (portTrack==7){
-      display.setCursor(49, 30);
-      display.print("<");
-    }
-    display.setCursor(55, 30);
-    display.print("|");
-    print_reading("P20:",displayArray[1]);
-    if (portTrack==1){
-      display.setCursor(120, 30);
-      display.print("<");
-    }
-    display.setCursor(0, 40);
-    print_reading("P19:",displayArray[0]);
-    if (portTrack==0){
-      display.setCursor(49, 40);
-      display.print("<");
-    }
-    display.setCursor(55, 40);
-    display.print("|");
-    print_reading("P21:",displayArray[2]);
-    if (portTrack==2){
-      display.setCursor(120, 40);
-      display.print("<");
-    }
-    display.setCursor(0, 48);
-    display.println("CF=Connection Failed");
-    //display.setCursor(0, 60);
-    display.print("CCF=Check Code Failed");
-    display.display();
+    renderDisplay();
     portSelect(portTrack);//resets portTrack and executes code to select the first port
     while (multiplex.available()) { multiplex.read(); }
   }
 }
 
-/*portTrack 0 = P19
-  portTrack 1 = P20
-  portTrack 2 = P21
-  portTrack 3 = P14
-  portTrack 4 = P15
-  portTrack 5 = P16
-  portTrack 6 = P17
-  portTrack 7 = P18
-  */
-
-uint8_t uart_port[8][3] = {
+uint8_t uart_port[PORT_MAX][3] = {
     // C, B, A
-    {HIGH, LOW, HIGH}, //portTrack 0
-    {HIGH, HIGH, LOW}, //portTrack 1
-    {HIGH, HIGH, HIGH},//portTrack 2
-    {LOW, LOW, LOW},//portTrack 3
-    {LOW, LOW, HIGH},//portTrack 4
-    {LOW, HIGH, LOW},//portTrack 5
-    {LOW, HIGH, HIGH},//portTrack 6
-    {HIGH, LOW, LOW},//portTrack 7
+    {HIGH, LOW, HIGH}, //PORT_PM_P19
+    {HIGH, HIGH, LOW}, //PORT_CO2_P20
+    {HIGH, HIGH, HIGH},//PORT_CO2_P21
+    {LOW, LOW, LOW},//PORT_PM_P14
+    {LOW, LOW, HIGH},//PORT_PM_P15
+    {LOW, HIGH, LOW},//PORT_CO2_P16
+    {LOW, HIGH, HIGH},//PORT_CO2_P17
+    {HIGH, LOW, LOW},//PORT_PM_P18
 };
 
 void portSelect(int select){
@@ -263,10 +214,7 @@ void portSelect(int select){
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
 }
-/*
-PMS7003 ports are P14,P15,P18,P19
-CO2 ports are P16,P17,P20,P21
-*/
+
 void pmsSensor(){
   if (newPort==true){
   timeSinceStart=millis();
@@ -280,7 +228,7 @@ void pmsSensor(){
     done=true;
     newPort=true;
     waitFor77=false;
-    displayArray[portTrack]=-1;
+    displayArray[portTrack]=CF;
   }
   if (multiplex.available()){
     int data =multiplex.read();  
@@ -299,16 +247,6 @@ void pmsSensor(){
       dataArray[position]=data;
       position++;
     }
-      /*
-    portTrack 0 = P19
-    portTrack 1 = P20
-    portTrack 2 = P21
-    portTrack 3 = P14
-    portTrack 4 = P15
-    portTrack 5 = P16
-    portTrack 6 = P17
-    portTrack 7 = P18
-    */
     if (position==32){
       checkSum=false;
       int checkCode=(dataArray[30]*256)+dataArray[31];
@@ -324,7 +262,7 @@ void pmsSensor(){
       if (checkSum){
         displayArray[portTrack]=(dataArray[6]*256)+dataArray[7];
       }else{
-        displayArray[portTrack]=-2;
+        displayArray[portTrack]=CCF;
       }
       safety=false;
       position=1;
@@ -336,19 +274,13 @@ void pmsSensor(){
 void co2Sensor(){
   while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
     multiplex.read();
-
   }
-
-
   multiplex.write(getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
 
   unsigned long startTime=millis();
   while (multiplex.available()<9){
     if (millis()-startTime>1000){
-      displayArray[portTrack]=-1;   
-      /*while(multiplex.available()){
-        multiplex.read();
-      }*/
+      displayArray[portTrack]=CF;   
       done=true;
       newPort=true;
       return;
@@ -375,10 +307,10 @@ void co2Sensor(){
     if (checkSum==int(dataResponse[8])){
     displayArray[portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
     }else{
-      displayArray[portTrack]=-2;
+      displayArray[portTrack]=CCF;
     }
   }else{
-    displayArray[portTrack]=-1;
+    displayArray[portTrack]=CF;
   }
   done=true;
   newPort=true;
@@ -387,11 +319,77 @@ void co2Sensor(){
 void print_reading(char *title, int val)
 {
   display.print(title);
-  if (val==-1){
-    display.print("CF");
-  }else if(val==-2){
-    display.print("CCF");
+  if (val==CF){
+    display.print(STRINGIFY(CF));
+  }else if(val==CCF){
+    display.print(STRINGIFY(CCF));
   }else{
     display.print(val);
   }
+}
+
+void renderDisplay(){
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("PM2.5");
+  display.setCursor(55,0);
+  display.print("|");
+  display.print("CO2");
+
+  display.setCursor(0, 10);
+  print_reading("P14:",displayArray[PORT_PM_P14]);
+  if (portTrack==PORT_PM_P14){
+    display.setCursor(49, 10);
+    display.print("<");
+  }
+  display.setCursor(55, 10);
+  display.print("|");
+  print_reading("P16:",displayArray[PORT_CO2_P16]);
+  if (portTrack==PORT_CO2_P16){
+    display.setCursor(120, 10);
+    display.print("<");
+  }
+  display.setCursor(0, 20);
+  print_reading("P15:",displayArray[PORT_PM_P15]);
+  if (portTrack==PORT_PM_P15){
+    display.setCursor(49, 20);
+    display.print("<");
+  }
+  display.setCursor(55, 20);
+  display.print("|");
+  print_reading("P17:",displayArray[PORT_CO2_P17]);
+  if (portTrack==PORT_CO2_P17){
+    display.setCursor(120, 20);
+    display.print("<");
+  }
+  display.setCursor(0, 30);
+  print_reading("P18:",displayArray[PORT_PM_P18]);
+  if (portTrack==PORT_PM_P18){
+    display.setCursor(49, 30);
+    display.print("<");
+  }
+  display.setCursor(55, 30);
+  display.print("|");
+  print_reading("P20:",displayArray[PORT_CO2_P20]);
+  if (portTrack==PORT_CO2_P20){
+    display.setCursor(120, 30);
+    display.print("<");
+  }
+  display.setCursor(0, 40);
+  print_reading("P19:",displayArray[PORT_PM_P19]);
+  if (portTrack==PORT_PM_P19){
+    display.setCursor(49, 40);
+    display.print("<");
+  }
+  display.setCursor(55, 40);
+  display.print("|");
+  print_reading("P21:",displayArray[PORT_CO2_P21]);
+  if (portTrack==PORT_CO2_P21){
+    display.setCursor(120, 40);
+    display.print("<");
+  }
+  display.setCursor(0, 48);
+  display.println("-1=Connection Failed");
+  display.print("-2=Check Code Failed");
+  display.display();
 }
