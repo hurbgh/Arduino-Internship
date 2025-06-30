@@ -7,5 +7,5 @@ PMS7003 sensor state diagram:
 MH-Z16 CO2 sensor:
 
 
-sequence diagram:
-![State diagram of pmsSensor function.](https://github.com/hurbgh/Arduino-Internship/blob/master/images/pmsSensor_function_state_diagram.jpg?raw=true)
+PMS7003 sensor state diagram:
+![State diagram of pmsSensor function.](https://raw.githubusercontent.com/hurbgh/Arduino-Internship/master/images/pmsSensor_function_state_diagram.jpg)
