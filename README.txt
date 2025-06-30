@@ -8,4 +8,4 @@ MH-Z16 CO2 sensor:
 
 
 PMS7003 sensor state diagram:
-![State diagram of pmsSensor function.](images/pmsSensor_function_state_diagram.jpg)
+![State diagram of pmsSensor function.](./images/pmsSensor_function_state_diagram.jpg "pms state diagram")
