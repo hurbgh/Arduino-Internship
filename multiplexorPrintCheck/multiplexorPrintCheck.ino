@@ -12,7 +12,8 @@
 #define RX 19//the port where RX wire connects
 
 Adafruit_SSD1306 display(SCREEN_WIDTH,SCREEN_HEIGHT,&Wire,OLED_RESET);
-
+//defining ports to be used by the UART2
+HardwareSerial multiplex(2);//using UART2
 //defining ports to be used by the multiplexer
 const int MUX_INH = 2;//port where inhibitor wire connects
 const int UMUX_A = 4;
@@ -33,35 +34,42 @@ enum Port {
   PORT_MAX = 8
 };
 
-//defining ports to be used by the UART2
-HardwareSerial multiplex(2);//using UART2
+struct pmsSensor{
+  //variables used by pmsSensor() to get PMS7003 data
+  bool waitFor77=false;//when the program reads 66, the first starting byte, it gets ready for the next byte, if the next byte is 77 it then starts recording, else this variable becomes false
+  bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data preventing bytes similar to starting bytes from causing the program to overwrite
+  int dataArray[32];//array to store all integers
+  int position=1;//integer variable to keep track of position in array
+  bool checkSum=false;//check sum checking boolean variable, it is false if the calculated check sum does not equal the value it is supposed to be
+  //the following are for helping detect if a port intended to be connected to a PMS7003 sensor does not have a sensor connected to it
+  unsigned long timeSinceStart;//starts recording time
+  unsigned long timeLimit;//this variable will store the end time since start of port switch for waiting, if current time is greater than max allowed and not starting integers found it will notify the port has no sensor
+};
 
-//variables used by pmsSensor() to get PMS7003 data
-bool waitFor77=false;//when the program reads 66, the first starting byte, it gets ready for the next byte, if the next byte is 77 it then starts recording, else this variable becomes false
-bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data preventing bytes similar to starting bytes from causing the program to overwrite
-int dataArray[32];//array to store all integers
-int position=1;//integer variable to keep track of position in array
-bool checkSum=false;//check sum checking boolean variable, it is false if the calculated check sum does not equal the value it is supposed to be
+struct portIterate{
+  enum Port portTrack = PORT_PM_P19;//this is to know which port to test and changes to test each other port
+  bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
+  int displayArray[8];//this array stores the values that will show on the display screen unlike the dataArray which stores all the data it got from a PMS7003 sensor
+  bool newPort=true;//boolean variable to know when to record end time for timeLimit so that I do not restart the timeLimit and end up waiting forever for a port to send data
+};
 
-enum Port portTrack = PORT_PM_P19;//this is to know which port to test and changes to test each other port
-bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
+struct co2Sensor{
+  //variables used to get CO2 data
+  byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};//this byte array is used to tell the sensor to send data
+  byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};//this byte array is used to tell the sensor to turn on self calibration
+  byte turnOffCalib[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};//this byte array is used to tell the sensor to turn off self calibration
+  bool askForEach=false;//this is to make sure the user only got the question prompt once for each port
+  bool decide=false;
+  String Choice="";//the users choice is stored here
+  bool co2PortChoice[4];
+};
 
-int displayArray[8];//this array stores the values that will show on the display screen unlike the dataArray which stores all the data it got from a PMS7003 sensor
-
-//the following are for helping detect if a port does not have a sensor connected to it
-unsigned long timeSinceStart;//starts recording time
-unsigned long timeLimit;//this variable will store the end time since start of port switch for waiting, if current time is greater than max allowed and not starting integers found it will notify the port has no sensor
-bool newPort=true;//boolean variable to know when to record end time for timeLimit so that I do not restart the timeLimit and end up waiting forever for a port to send data
-
-//variables used to get CO2 data
-byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};//this byte array is used to tell the sensor to send data
-byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};//this byte array is used to tell the sensor to turn on self calibration
-byte turnOffCalib[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};//this byte array is used to tell the sensor to turn off self calibration
-bool askForEach=false;//this is to make sure the user only got the question prompt once for each port
-bool decide=false;
-String Choice="";//the users choice is stored here
-bool co2PortChoice[4];
-
+struct programContext{
+  struct pmsSensor PMS;
+  struct co2Sensor CO2;
+  struct portIterate Iterate;
+};
+static struct programContext context;
 //function declarations
 void portSelect(int select);
 void pmsSensor();
@@ -73,7 +81,7 @@ void setup() {
   Serial.begin(115200);
   multiplex.begin(9600,SERIAL_8N1,RX,TX);//connection to the multiplexer
   
-  dataArray[0]=66;//intitializing array to store pms7003 data, i already know what the first data will be, the program depends on the second starting variable to start recording
+  context.PMS.dataArray[0]=66;//intitializing array to store pms7003 data, i already know what the first data will be, the program depends on the second starting variable to start recording
   
   if(!display.begin(SSD1306_SWITCHCAPVCC,0x3C)){//if the display fails to start it will notify the user
     Serial.println(F("SSD1306 allocation failed"));
@@ -93,11 +101,11 @@ void setup() {
   bool timeExceeded=false;
   Serial.println("If you want to maintain current settings and not change anyhting then just wait ten seconds.");
   for (int i=0;i<4;i++){//iterate through an array
-    decide=false;//once the decision is made exit the while loop
-    askForEach=false;//so that I do not ask more than one time for each port
+    context.CO2.decide=false;//once the decision is made exit the while loop
+    context.CO2.askForEach=false;//so that I do not ask more than one time for each port
     timeAtStart=millis();
-    while (decide==false){
-      if (askForEach==false){
+    while (context.CO2.decide==false){
+      if (context.CO2.askForEach==false){
         Serial.print("Do you want to turn on self-calibration function for MH-Z16 sensor connected to port ");
         if (i==0){
           Serial.print("P16? ");
@@ -109,7 +117,7 @@ void setup() {
           Serial.print("P21? ");
         }
         Serial.println("If yes enter the key y, else enter any key.");
-        askForEach=true;
+        context.CO2.askForEach=true;
       }
       /*if the user gives no input for ten seconds the program will move on.
       this is intended to help customize which sensor for which port whille have
@@ -119,19 +127,19 @@ void setup() {
         return;
       }
       if (Serial.available()>0){
-        Choice=Serial.readStringUntil('\n');
-        Choice.trim();
-        decide=true;
+        context.CO2.Choice=Serial.readStringUntil('\n');
+        context.CO2.Choice.trim();
+        context.CO2.decide=true;
       }
     }
     if (timeExceeded==true){
       return;
     }
-    if (Choice.equalsIgnoreCase("y")){
-      co2PortChoice[i]=true;
+    if (context.CO2.Choice.equalsIgnoreCase("y")){
+      context.CO2.co2PortChoice[i]=true;
       Serial.println("User selected on");
     }else{
-      co2PortChoice[i]=false;
+      context.CO2.co2PortChoice[i]=false;
       Serial.println("User Selected off");
     }
   }
@@ -147,10 +155,10 @@ void setup() {
       portSelect(PORT_CO2_P21);
     }
     //based on value execute either turn on or turn off command
-    if (co2PortChoice[i]==true){
-      multiplex.write(turnOnCalib,9);
+    if (context.CO2.co2PortChoice[i]==true){
+      multiplex.write(context.CO2.turnOnCalib,9);
     }else{
-      multiplex.write(turnOffCalib,9);
+      multiplex.write(context.CO2.turnOffCalib,9);
     }
   }
 
@@ -166,28 +174,28 @@ void setup() {
 }
 
 void loop() {
-  if (done==false){
-    if (portTrack==PORT_PM_P19||portTrack==PORT_PM_P14||portTrack==PORT_PM_P15||portTrack==PORT_PM_P18){
+  if (context.Iterate.done==false){
+    if (context.Iterate.portTrack==PORT_PM_P19||context.Iterate.portTrack==PORT_PM_P14||context.Iterate.portTrack==PORT_PM_P15||context.Iterate.portTrack==PORT_PM_P18){
       pmsSensor();//if currently at the ports intended for PMS sensors, use the function intended for those sensors
     }
-    else if (portTrack==PORT_CO2_P20||portTrack==PORT_CO2_P21||portTrack==PORT_CO2_P16||portTrack==PORT_CO2_P17){
+    else if (context.Iterate.portTrack==PORT_CO2_P20||context.Iterate.portTrack==PORT_CO2_P21||context.Iterate.portTrack==PORT_CO2_P16||context.Iterate.portTrack==PORT_CO2_P17){
       co2Sensor();//if currently at the ports intended for CO2 sensors, use the function intended for those sensors
     }
   }else{
-    portTrack = static_cast<Port>(static_cast<int>(portTrack) + 1);//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
-    if (portTrack==PORT_MAX){
-      portTrack=PORT_MIN;
+    context.Iterate.portTrack = static_cast<Port>(static_cast<int>(context.Iterate.portTrack) + 1);//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
+    if (context.Iterate.portTrack==PORT_MAX){
+      context.Iterate.portTrack=PORT_MIN;
     }
-    done=false;//set done to false because I have to read a new port
-    portSelect(portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
+    context.Iterate.done=false;//set done to false because I have to read a new port
+    portSelect(context.Iterate.portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
     while (multiplex.available()) { multiplex.read(); };//clear buffer
     //reset variables
-    waitFor77=false;
-    safety=false;
-    position=1;
-    newPort=true;
+    context.PMS.waitFor77=false;
+    context.PMS.safety=false;
+    context.PMS.position=1;
+    context.Iterate.newPort=true;
     renderDisplay();
-    portSelect(portTrack);//resets portTrack and executes code to select the first port
+    portSelect(context.Iterate.portTrack);//resets portTrack and executes code to select the first port
     while (multiplex.available()) { multiplex.read(); }
   }
 }
@@ -216,58 +224,58 @@ void portSelect(int select){
 }
 
 void pmsSensor(){
-  if (newPort==true){
-  timeSinceStart=millis();
-  timeLimit=timeSinceStart+1000;
-  newPort=false;
+  if (context.Iterate.newPort==true){
+  context.PMS.timeSinceStart=millis();
+  context.PMS.timeLimit=context.PMS.timeSinceStart+1000;
+  context.Iterate.newPort=false;
   }
   //timeSinceStart=millis();
-  if(millis()>timeLimit&&safety==false){
-    safety=false;
-    position=1;
-    done=true;
-    newPort=true;
-    waitFor77=false;
-    displayArray[portTrack]=CF;
+  if(millis()>context.PMS.timeLimit&&context.PMS.safety==false){
+    context.PMS.safety=false;
+    context.PMS.position=1;
+    context.Iterate.done=true;
+    context.Iterate.newPort=true;
+    context.PMS.waitFor77=false;
+    context.Iterate.displayArray[context.Iterate.portTrack]=CF;
   }
   if (multiplex.available()){
     int data =multiplex.read();  
-    if (data==66&&safety==false){//detected first starting byte but it might be a false alarm
-      waitFor77=true;
+    if (data==66&&context.PMS.safety==false){//detected first starting byte but it might be a false alarm
+      context.PMS.waitFor77=true;
     }
-    else if (waitFor77==true&&safety==false){//if i am waiting for second byte and safety off then
+    else if (context.PMS.waitFor77==true&&context.PMS.safety==false){//if i am waiting for second byte and safety off then
       if (data==77){//if data is 77 then it is starting to send data! safety is a boolean value to prevent the loop from starting again when another 77 is detected!
-        safety=true;//safety is turned on to prevent this if statement to overwrite the array
-        waitFor77=false;//safety is on and I no longer need to wait for value to know start recording so I can turn this off
+        context.PMS.safety=true;//safety is turned on to prevent this if statement to overwrite the array
+        context.PMS.waitFor77=false;//safety is on and I no longer need to wait for value to know start recording so I can turn this off
       }else{
-        waitFor77=false;//if i do not get the next value reset the boolean condition
+        context.PMS.waitFor77=false;//if i do not get the next value reset the boolean condition
       }
     }
-    if (safety==true&&position!=32){
-      dataArray[position]=data;
-      position++;
+    if (context.PMS.safety==true&&context.PMS.position!=32){
+      context.PMS.dataArray[context.PMS.position]=data;
+      context.PMS.position++;
     }
-    if (position==32){
-      checkSum=false;
-      int checkCode=(dataArray[30]*256)+dataArray[31];
+    if (context.PMS.position==32){
+      context.PMS.checkSum=false;
+      int checkCode=(context.PMS.dataArray[30]*256)+context.PMS.dataArray[31];
       int sumForCheck=0;
       for(int i =0;i<30;i++){
-        sumForCheck=sumForCheck+dataArray[i];
+        sumForCheck=sumForCheck+context.PMS.dataArray[i];
       }
       if (checkCode==sumForCheck){
-        checkSum=true;
+        context.PMS.checkSum=true;
       }else{
-        checkSum=false;
+        context.PMS.checkSum=false;
       }
-      if (checkSum){
-        displayArray[portTrack]=(dataArray[6]*256)+dataArray[7];
+      if (context.PMS.checkSum){
+        context.Iterate.displayArray[context.Iterate.portTrack]=(context.PMS.dataArray[6]*256)+context.PMS.dataArray[7];
       }else{
-        displayArray[portTrack]=CCF;
+        context.Iterate.displayArray[context.Iterate.portTrack]=CCF;
       }
-      safety=false;
-      position=1;
-      done=true;
-      newPort=true;
+      context.PMS.safety=false;
+      context.PMS.position=1;
+      context.Iterate.done=true;
+      context.Iterate.newPort=true;
     }
 }}
 
@@ -275,14 +283,14 @@ void co2Sensor(){
   while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
     multiplex.read();
   }
-  multiplex.write(getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
+  multiplex.write(context.CO2.getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
 
   unsigned long startTime=millis();
   while (multiplex.available()<9){
     if (millis()-startTime>1000){
-      displayArray[portTrack]=CF;   
-      done=true;
-      newPort=true;
+      context.Iterate.displayArray[context.Iterate.portTrack]=CF;   
+      context.Iterate.done=true;
+      context.Iterate.newPort=true;
       return;
     }
 
@@ -305,24 +313,24 @@ void co2Sensor(){
     massive number or a check code failed error. this makes sure that the first two important values are present in the array for reading and the data is not greater than the largest
     possible. after this check it proceeds onwards*/
     if (checkSum==int(dataResponse[8])){
-    displayArray[portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
+    context.Iterate.displayArray[context.Iterate.portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
     }else{
-      displayArray[portTrack]=CCF;
+      context.Iterate.displayArray[context.Iterate.portTrack]=CCF;
     }
   }else{
-    displayArray[portTrack]=CF;
+    context.Iterate.displayArray[context.Iterate.portTrack]=CF;
   }
-  done=true;
-  newPort=true;
+  context.Iterate.done=true;
+  context.Iterate.newPort=true;
 }
 
 void print_reading(char *title, int val)
 {
   display.print(title);
   if (val==CF){
-    display.print(STRINGIFY(CF));
+    display.print("CF");
   }else if(val==CCF){
-    display.print(STRINGIFY(CCF));
+    display.print("CCF");
   }else{
     display.print(val);
   }
@@ -337,59 +345,59 @@ void renderDisplay(){
   display.print("CO2");
 
   display.setCursor(0, 10);
-  print_reading("P14:",displayArray[PORT_PM_P14]);
-  if (portTrack==PORT_PM_P14){
+  print_reading("P14:",context.Iterate.displayArray[PORT_PM_P14]);
+  if (context.Iterate.portTrack==PORT_PM_P14){
     display.setCursor(49, 10);
     display.print("<");
   }
   display.setCursor(55, 10);
   display.print("|");
-  print_reading("P16:",displayArray[PORT_CO2_P16]);
-  if (portTrack==PORT_CO2_P16){
+  print_reading("P16:",context.Iterate.displayArray[PORT_CO2_P16]);
+  if (context.Iterate.portTrack==PORT_CO2_P16){
     display.setCursor(120, 10);
     display.print("<");
   }
   display.setCursor(0, 20);
-  print_reading("P15:",displayArray[PORT_PM_P15]);
-  if (portTrack==PORT_PM_P15){
+  print_reading("P15:",context.Iterate.displayArray[PORT_PM_P15]);
+  if (context.Iterate.portTrack==PORT_PM_P15){
     display.setCursor(49, 20);
     display.print("<");
   }
   display.setCursor(55, 20);
   display.print("|");
-  print_reading("P17:",displayArray[PORT_CO2_P17]);
-  if (portTrack==PORT_CO2_P17){
+  print_reading("P17:",context.Iterate.displayArray[PORT_CO2_P17]);
+  if (context.Iterate.portTrack==PORT_CO2_P17){
     display.setCursor(120, 20);
     display.print("<");
   }
   display.setCursor(0, 30);
-  print_reading("P18:",displayArray[PORT_PM_P18]);
-  if (portTrack==PORT_PM_P18){
+  print_reading("P18:",context.Iterate.displayArray[PORT_PM_P18]);
+  if (context.Iterate.portTrack==PORT_PM_P18){
     display.setCursor(49, 30);
     display.print("<");
   }
   display.setCursor(55, 30);
   display.print("|");
-  print_reading("P20:",displayArray[PORT_CO2_P20]);
-  if (portTrack==PORT_CO2_P20){
+  print_reading("P20:",context.Iterate.displayArray[PORT_CO2_P20]);
+  if (context.Iterate.portTrack==PORT_CO2_P20){
     display.setCursor(120, 30);
     display.print("<");
   }
   display.setCursor(0, 40);
-  print_reading("P19:",displayArray[PORT_PM_P19]);
-  if (portTrack==PORT_PM_P19){
+  print_reading("P19:",context.Iterate.displayArray[PORT_PM_P19]);
+  if (context.Iterate.portTrack==PORT_PM_P19){
     display.setCursor(49, 40);
     display.print("<");
   }
   display.setCursor(55, 40);
   display.print("|");
-  print_reading("P21:",displayArray[PORT_CO2_P21]);
-  if (portTrack==PORT_CO2_P21){
+  print_reading("P21:",context.Iterate.displayArray[PORT_CO2_P21]);
+  if (context.Iterate.portTrack==PORT_CO2_P21){
     display.setCursor(120, 40);
     display.print("<");
   }
   display.setCursor(0, 48);
-  display.println("-1=Connection Failed");
-  display.print("-2=Check Code Failed");
+  display.println("CF=Connection Failed");
+  display.print("CCF=Check Code Failed");
   display.display();
 }
