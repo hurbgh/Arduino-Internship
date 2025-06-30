@@ -8,4 +8,4 @@ MH-Z16 CO2 sensor:
 
 
 sequence diagram:
-![Image of sequence diagram of the pmsSensor function.](/images/pmsSensor_function_state_diagram.jpg)
+![Image of sequence diagram of the pmsSensor function.](https://github.com/hurbgh/Arduino-Internship/blob/master/images/pmsSensor_function_state_diagram.jpg?raw=true)
