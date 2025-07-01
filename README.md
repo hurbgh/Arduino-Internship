@@ -5,7 +5,7 @@ multiplexorPrintCheck sequence diagram:
 ![Sequence diagram of the multiplexorPrintCheck program.]("multiplexorPrintCheck sequence diagram")
 
 MH-Z16 CO2 sensor state diagram:
-![State diagram of the co2Sensor function.](./images/co2sensor_function_state_diagram.jpg "co2Sensor state diagram")
+![State diagram of the co2Sensor function.](./images/co2Sensor_function_state_diagram.jpg "co2Sensor state diagram")
 
 PMS7003 sensor state diagram:
 ![State diagram of pmsSensor function.](./images/pmsSensor_function_state_diagram.jpg "pms state diagram")
