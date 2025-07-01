@@ -34,7 +34,7 @@ enum Port {
   PORT_MAX = 8
 };
 
-struct pmsSensor{
+struct pmsSensor{//this is all the variables that are used by the pmsSensor function
   //variables used by pmsSensor() to get PMS7003 data
   bool waitFor77=false;//when the program reads 66, the first starting byte, it gets ready for the next byte, if the next byte is 77 it then starts recording, else this variable becomes false
   bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data preventing bytes similar to starting bytes from causing the program to overwrite
@@ -46,14 +46,14 @@ struct pmsSensor{
   unsigned long timeLimit;//this variable will store the end time since start of port switch for waiting, if current time is greater than max allowed and not starting integers found it will notify the port has no sensor
 };
 
-struct portIterate{
+struct portIterate{//these are all the variables used to get data from sensors connected to ports and keep track of which port the program is on currently and which one to go to next
   enum Port portTrack = PORT_PM_P19;//this is to know which port to test and changes to test each other port
   bool done = false;//this is to keep track of progress collecting data from one port and switching to another port when ready
   int displayArray[8];//this array stores the values that will show on the display screen unlike the dataArray which stores all the data it got from a PMS7003 sensor
   bool newPort=true;//boolean variable to know when to record end time for timeLimit so that I do not restart the timeLimit and end up waiting forever for a port to send data
 };
 
-struct co2Sensor{
+struct co2Sensor{//this is all the vraibales used by the co2Sensor function
   //variables used to get CO2 data
   byte getData[9]={0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};//this byte array is used to tell the sensor to send data
   byte turnOnCalib[9]={0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};//this byte array is used to tell the sensor to turn on self calibration
