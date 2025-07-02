@@ -4,18 +4,21 @@ The files bt_spp_acceptor and turnLedOnFromPhone are files made from me reinstal
 ## Sensor Testing Documentation
 The following are diagrams to help understand how the multiplexorPrintCheck program works.
 
-MH-Z16 CO2 sensor state diagram:
+#### MH-Z16 CO2 sensor state diagram:
 ![State diagram of the co2Sensor function.](./images/co2Sensor_function_state_diagram.jpg "co2Sensor state diagram")
 
-PMS7003 sensor state diagram:
+#### PMS7003 sensor state diagram:
 ![State diagram of pmsSensor function.](./images/pmsSensor_function_state_diagram.jpg "pms state diagram")
 
-Getting PM data sequence diagrams:
+#### Getting PM data sequence diagram:
 ![Sequence diagram for getting data from PMS7003](./images/loop_gets_PM_sensor_data.jpg "Sequence diagram of getting data from PM sensor")
+#### PM connection failed sequence diagram
 ![Sequence diagram for getting connection failed from PMS7003](./images/loop_timeout_PM_sensor_data.jpg "Sequence diagram of getting connection failed from PM sensor")
 
-Getting CO2 data sequence diagrams:
+#### Getting CO2 data sequence diagram:
 ![Sequence diagram for getting data from MH-Z16](./images/loop_gets_CO2_sensor_data.jpg "Sequence diagram of getting data from MH-Z16 sensor")
+
+#### CO2 connection failed sequence diagram:
 ![Sequence diagram for getting connection failed from MH-Z16](./images/loop_timeout_CO2_sensor_data.jpg "Sequence diagram of getting connection failed from MH-Z16 sensor")
 
 ### How it works:
