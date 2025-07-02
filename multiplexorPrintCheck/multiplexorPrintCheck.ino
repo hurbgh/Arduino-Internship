@@ -293,9 +293,7 @@ void co2Sensor(){
       context.Iterate.newPort=true;
       return;
     }
-
   }
-
   byte dataResponse[9];
   for (int i =0;i<9;i++){
     dataResponse[i]=multiplex.read();
