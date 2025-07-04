@@ -1,13 +1,17 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-#define CF -1
-#define CCF -2
+#define OLED_RESET -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+
+#define CF -1   // Connection Failed
+#define CCF -2  // Checksum Check Failed
+
 #define STR(x) #x
 #define STRINGIFY(x) STR(x)
+
 #define TX 18//the port where TX wire connects
 #define RX 19//the port where RX wire connects
 
@@ -34,16 +38,32 @@ enum Port {
   PORT_MAX = 8
 };
 
+enum pmSensorState{
+  initial_state=0,
+  read_data_looking_for_66=initial_state,
+  wait_for_write_signal_77=1,
+  write_data_to_array=2,
+  process_data_from_array=3,
+  mark_reading_as_done=4
+};
+
+enum co2SensorState{
+  co2_initial_state=0,
+  wait_for_buffer_length_9_bytes=co2_initial_state,
+  write_buffer_to_array=1,
+  process_data_from_array_co2=2,
+  mark_reading_as_done_co2=3
+};
+
 struct pmsSensor{//this is all the variables that are used by the pmsSensor function
   //variables used by pmsSensor() to get PMS7003 data
-  bool waitFor77=false;//when the program reads 66, the first starting byte, it gets ready for the next byte, if the next byte is 77 it then starts recording, else this variable becomes false
-  bool safety=false;//this prevents the loop from happening again if the same starting number is encountered when getting data preventing bytes similar to starting bytes from causing the program to overwrite
   int dataArray[32];//array to store all integers
   int position=1;//integer variable to keep track of position in array
   bool checkSum=false;//check sum checking boolean variable, it is false if the calculated check sum does not equal the value it is supposed to be
   //the following are for helping detect if a port intended to be connected to a PMS7003 sensor does not have a sensor connected to it
   unsigned long timeSinceStart;//starts recording time
   unsigned long timeLimit;//this variable will store the end time since start of port switch for waiting, if current time is greater than max allowed and not starting integers found it will notify the port has no sensor
+  enum pmSensorState pmStateSelect= read_data_looking_for_66;
 };
 
 struct portIterate{//these are all the variables used to get data from sensors connected to ports and keep track of which port the program is on currently and which one to go to next
@@ -62,6 +82,7 @@ struct co2Sensor{//this is all the vraibales used by the co2Sensor function
   bool decide=false;
   String Choice="";//the users choice is stored here
   bool co2PortChoice[4];
+  enum co2SensorState co2StateSelect= wait_for_buffer_length_9_bytes;
 };
 
 struct programContext{
@@ -124,7 +145,7 @@ void setup() {
       self-calibration function on or off. if the user wants to maintain defaults just wait ten seconds*/
       if (millis()-timeAtStart>10000){
         timeExceeded=true;
-        return;
+        break; // Added break to exit while loop immediately
       }
       if (Serial.available()>0){
         context.CO2.Choice=Serial.readStringUntil('\n');
@@ -133,7 +154,7 @@ void setup() {
       }
     }
     if (timeExceeded==true){
-      return;
+      break; // Added break to exit for loop immediately
     }
     if (context.CO2.Choice.equalsIgnoreCase("y")){
       context.CO2.co2PortChoice[i]=true;
@@ -160,11 +181,10 @@ void setup() {
     }else{
       multiplex.write(context.CO2.turnOffCalib,9);
     }
+    delay(50); // Small delay after sending command
   }
 
   digitalWrite(MUX_INH,HIGH);
- 
- 
   digitalWrite(UMUX_C,HIGH);
   digitalWrite(UMUX_B,LOW);
   digitalWrite(UMUX_A,HIGH);
@@ -190,13 +210,13 @@ void loop() {
     portSelect(context.Iterate.portTrack);//put the portTrack value into portSelect function so the code to get the multiplexor to switch to the next correct port gets executed
     while (multiplex.available()) { multiplex.read(); };//clear buffer
     //reset variables
-    context.PMS.waitFor77=false;
-    context.PMS.safety=false;
     context.PMS.position=1;
     context.Iterate.newPort=true;
+    // context.PMS.timeLimit = 0; // Removed, timeout logic moved
+    context.PMS.pmStateSelect=read_data_looking_for_66;
     renderDisplay();
-    portSelect(context.Iterate.portTrack);//resets portTrack and executes code to select the first port
-    while (multiplex.available()) { multiplex.read(); }
+    // No need to call portSelect again here as it's done above.
+    // while (multiplex.available()) { multiplex.read(); } // Duplicative buffer clear, removed
   }
 }
 
@@ -221,74 +241,116 @@ void portSelect(int select){
 
   digitalWrite(UART_EN,HIGH);
   digitalWrite(MUX_INH,LOW);
+  delay(10); // Give MUX time to settle
 }
 
 void pmsSensor(){
-  if (context.Iterate.newPort==true){
-  context.PMS.timeSinceStart=millis();
-  context.PMS.timeLimit=context.PMS.timeSinceStart+1000;
-  context.Iterate.newPort=false;
+  int data = -1; // Declare data outside the switch to make it accessible in all cases
+  int checkCode=0; // Declared here
+  int sumForCheck=0; // Declared here
+  
+  if (multiplex.available()) {
+    data = multiplex.read();
   }
-  //timeSinceStart=millis();
-  if(millis()>context.PMS.timeLimit&&context.PMS.safety==false){
-    context.PMS.safety=false;
-    context.PMS.position=1;
-    context.Iterate.done=true;
-    context.Iterate.newPort=true;
-    context.PMS.waitFor77=false;
-    context.Iterate.displayArray[context.Iterate.portTrack]=CF;
-  }
-  if (multiplex.available()){
-    int data =multiplex.read();  
-    if (data==66&&context.PMS.safety==false){//detected first starting byte but it might be a false alarm
-      context.PMS.waitFor77=true;
-    }
-    else if (context.PMS.waitFor77==true&&context.PMS.safety==false){//if i am waiting for second byte and safety off then
-      if (data==77){//if data is 77 then it is starting to send data! safety is a boolean value to prevent the loop from starting again when another 77 is detected!
-        context.PMS.safety=true;//safety is turned on to prevent this if statement to overwrite the array
-        context.PMS.waitFor77=false;//safety is on and I no longer need to wait for value to know start recording so I can turn this off
-      }else{
-        context.PMS.waitFor77=false;//if i do not get the next value reset the boolean condition
+
+  switch (context.PMS.pmStateSelect){
+    case read_data_looking_for_66:
+      if (context.Iterate.newPort==true){
+        context.PMS.timeSinceStart=millis();
+        context.PMS.timeLimit=context.PMS.timeSinceStart+1000; // Increased timeout to 5 seconds
+        context.Iterate.newPort=false;
+        context.PMS.position = 1; // Reset position
       }
-    }
-    if (context.PMS.safety==true&&context.PMS.position!=32){
-      context.PMS.dataArray[context.PMS.position]=data;
-      context.PMS.position++;
-    }
-    if (context.PMS.position==32){
+      
+      // If data is 0x42, transition
+      if (data!=-1 && data==0x42){
+        context.PMS.pmStateSelect=wait_for_write_signal_77;
+      }
+      // ELSE IF NO DATA AND TIMEOUT OCCURRED
+      else if (data == -1 && millis() > context.PMS.timeLimit) {
+        context.Iterate.displayArray[context.Iterate.portTrack]=CF;
+        context.PMS.pmStateSelect = mark_reading_as_done;
+      }
+      // ELSE (data is -1 and no timeout, or data is wrong byte), stay in current state
+      break;
+    
+    case wait_for_write_signal_77:
+      // If data is 0x4D, transition
+      if (data!=-1 && data==0x4D){
+        context.PMS.pmStateSelect=write_data_to_array;
+        context.PMS.dataArray[context.PMS.position]=data;
+        context.PMS.position++; // Increment position
+      }
+      // ELSE IF NO DATA AND TIMEOUT OCCURRED
+      else if (data == -1 && millis() > context.PMS.timeLimit) {
+        context.Iterate.displayArray[context.Iterate.portTrack]=CF;
+        context.PMS.pmStateSelect = mark_reading_as_done;
+      }
+      // ELSE (data is not -1 but not 0x4D) - this means a wrong byte after 0x42
+      else if (data != -1) { 
+        context.PMS.pmStateSelect=read_data_looking_for_66;
+        context.PMS.position = 1; // Reset position
+      }
+      // ELSE (data is -1 and no timeout), stay in current state
+      break;
+
+    case write_data_to_array:
+      // If data is valid and there's space in the array
+      if (data != -1 && context.PMS.position < 32){
+        context.PMS.dataArray[context.PMS.position]=data;
+        context.PMS.position++;
+        // Serial.print("PMS: Stored byte to position "); Serial.print(context.PMS.position - 1);
+        // Serial.print(", Current Pos: "); Serial.println(context.PMS.position); // Debug print
+      }
+      // If array is full (32 bytes collected)
+      if (context.PMS.position==32){
+        context.PMS.pmStateSelect=process_data_from_array;
+      }
+      // NOTE: Timeout for full frame should be handled by an overall frame timeout
+      // or if data stream stops, it will stall here and eventually be caught by the
+      // general system timeout if that's implemented outside loop/sensor functions.
+      // For now, only 66/77 initial timeouts are explicitly handled.
+      break;
+
+    case process_data_from_array:
       context.PMS.checkSum=false;
-      int checkCode=(context.PMS.dataArray[30]*256)+context.PMS.dataArray[31];
-      int sumForCheck=0;
+      checkCode=(context.PMS.dataArray[30]*256)+context.PMS.dataArray[31];
+      sumForCheck=0;
       for(int i =0;i<30;i++){
         sumForCheck=sumForCheck+context.PMS.dataArray[i];
       }
+
       if (checkCode==sumForCheck){
         context.PMS.checkSum=true;
-      }else{
-        context.PMS.checkSum=false;
       }
       if (context.PMS.checkSum){
         context.Iterate.displayArray[context.Iterate.portTrack]=(context.PMS.dataArray[6]*256)+context.PMS.dataArray[7];
       }else{
         context.Iterate.displayArray[context.Iterate.portTrack]=CCF;
       }
-      context.PMS.safety=false;
+      context.PMS.pmStateSelect=mark_reading_as_done;
+      break;
+
+    case mark_reading_as_done:
       context.PMS.position=1;
       context.Iterate.done=true;
       context.Iterate.newPort=true;
-    }
-}}
+      context.PMS.pmStateSelect=read_data_looking_for_66;
+      break;
+  }
+}
 
 void co2Sensor(){
-  while (multiplex.available()) {//clears the buffer before asking the CO2 sensor to send data
-    multiplex.read();
+
+  while (multiplex.available()) {
+    multiplex.read(); // Clear the buffer
   }
-  multiplex.write(context.CO2.getData,9);//the CO2 sensor is finally asked for data after the self-calibration condition for the sensor has been decided by the user
+  multiplex.write(context.CO2.getData,9); // Request data
 
   unsigned long startTime=millis();
   while (multiplex.available()<9){
     if (millis()-startTime>1000){
-      context.Iterate.displayArray[context.Iterate.portTrack]=CF;   
+      context.Iterate.displayArray[context.Iterate.portTrack]=CF;    
       context.Iterate.done=true;
       context.Iterate.newPort=true;
       return;
@@ -306,10 +368,8 @@ void co2Sensor(){
   }
   checkSum=0xFF-checkSum;
   checkSum++;
+
   if (int(dataResponse[0])==255&&int(dataResponse[1])==134&&int(dataResponse[2])*256+int(dataResponse[3])<2001){
-    /*this if statement above this comment is a bug fix, for some reason when CO2 sensors are unplugged, the port still sends data that gets read and returns either a 
-    massive number or a check code failed error. this makes sure that the first two important values are present in the array for reading and the data is not greater than the largest
-    possible. after this check it proceeds onwards*/
     if (checkSum==int(dataResponse[8])){
     context.Iterate.displayArray[context.Iterate.portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
     }else{
