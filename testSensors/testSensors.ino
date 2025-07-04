@@ -83,6 +83,9 @@ struct co2Sensor{//this is all the vraibales used by the co2Sensor function
   String Choice="";//the users choice is stored here
   bool co2PortChoice[4];
   enum co2SensorState co2StateSelect= wait_for_buffer_length_9_bytes;
+  byte dataResponse[9];
+  unsigned long startTime;
+  byte checkSum =0;
 };
 
 struct programContext{
@@ -341,45 +344,55 @@ void pmsSensor(){
 }
 
 void co2Sensor(){
+  switch (context.CO2.co2StateSelect){
+    case wait_for_buffer_length_9_bytes:
+      while (multiplex.available()) {
+        multiplex.read(); // Clear the buffer
+      }
+      multiplex.write(context.CO2.getData,9); // Request data
+      context.CO2.co2StateSelect=write_buffer_to_array;
+      context.CO2.startTime=millis();
+      while (multiplex.available()<9){
+        if (millis()-context.CO2.startTime>1000){
+          context.Iterate.displayArray[context.Iterate.portTrack]=CF;    
+          context.Iterate.done=true;
+          context.Iterate.newPort=true;
+          context.CO2.co2StateSelect=mark_reading_as_done_co2;
+          return;
+        }
+      }
+      break;
+    case write_buffer_to_array:
+      for (int i =0;i<9;i++){
+        context.CO2.dataResponse[i]=multiplex.read();
+      }
+      context.CO2.co2StateSelect=process_data_from_array_co2;
+      break;
+    case process_data_from_array_co2:
+      context.CO2.checkSum = 0;
+      for (int i =1;i<8;i++){
+        context.CO2.checkSum=context.CO2.checkSum+context.CO2.dataResponse[i];
+      }
+      context.CO2.checkSum=0xFF-context.CO2.checkSum;
+      context.CO2.checkSum++;
 
-  while (multiplex.available()) {
-    multiplex.read(); // Clear the buffer
-  }
-  multiplex.write(context.CO2.getData,9); // Request data
-
-  unsigned long startTime=millis();
-  while (multiplex.available()<9){
-    if (millis()-startTime>1000){
-      context.Iterate.displayArray[context.Iterate.portTrack]=CF;    
+      if (int(context.CO2.dataResponse[0])==255&&int(context.CO2.dataResponse[1])==134&&int(context.CO2.dataResponse[2])*256+int(context.CO2.dataResponse[3])<2001){
+        if (context.CO2.checkSum==int(context.CO2.dataResponse[8])){
+        context.Iterate.displayArray[context.Iterate.portTrack]=(int(context.CO2.dataResponse[2])*256)+int(context.CO2.dataResponse[3]);
+        }else{
+          context.Iterate.displayArray[context.Iterate.portTrack]=CCF;
+        }
+      }else{
+        context.Iterate.displayArray[context.Iterate.portTrack]=CF;
+      }
+      context.CO2.co2StateSelect=mark_reading_as_done_co2;
+      break;
+    case mark_reading_as_done_co2:
       context.Iterate.done=true;
       context.Iterate.newPort=true;
-      return;
-    }
+      context.CO2.co2StateSelect=wait_for_buffer_length_9_bytes;
+      break;
   }
-  byte dataResponse[9];
-  for (int i =0;i<9;i++){
-    dataResponse[i]=multiplex.read();
-  }
-
-  //i have the data now verify data integrity
-  byte checkSum =0;
-  for (int i =1;i<8;i++){
-    checkSum=checkSum+dataResponse[i];
-  }
-  checkSum=0xFF-checkSum;
-  checkSum++;
-
-  if (int(dataResponse[0])==255&&int(dataResponse[1])==134&&int(dataResponse[2])*256+int(dataResponse[3])<2001){
-    if (checkSum==int(dataResponse[8])){
-    context.Iterate.displayArray[context.Iterate.portTrack]=(int(dataResponse[2])*256)+int(dataResponse[3]);
-    }else{
-      context.Iterate.displayArray[context.Iterate.portTrack]=CCF;
-    }
-  }else{
-    context.Iterate.displayArray[context.Iterate.portTrack]=CF;
-  }
-  context.Iterate.done=true;
-  context.Iterate.newPort=true;
 }
 
 void print_reading(char *title, int val)
