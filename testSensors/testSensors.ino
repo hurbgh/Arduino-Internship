@@ -100,6 +100,7 @@ void pmsSensor();
 void co2Sensor();
 void print_reading(char *title, int val);
 void renderDisplay();
+void printSerialDisplay();
 
 void setup() {
   Serial.begin(115200);
@@ -205,6 +206,7 @@ void loop() {
       co2Sensor();//if currently at the ports intended for CO2 sensors, use the function intended for those sensors
     }
   }else{
+    printSerialDisplay();
     context.Iterate.portTrack = static_cast<Port>(static_cast<int>(context.Iterate.portTrack) + 1);//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
     if (context.Iterate.portTrack==PORT_MAX){
       context.Iterate.portTrack=PORT_MIN;
@@ -472,3 +474,40 @@ void renderDisplay(){
   display.print("CCF=Check Code Failed");
   display.display();
 }
+
+void printSerialDisplay(){
+  switch (context.Iterate.portTrack){
+  case PORT_PM_P14:
+    Serial.print("PM2.5|P14|");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P14]);
+    break;
+  case PORT_PM_P15:
+    Serial.print("PM2.5|P15|");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P15]);
+    break;
+  case PORT_PM_P18:
+    Serial.print("PM2.5|P18|");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P18]);
+    break;
+  case PORT_PM_P19:
+    Serial.print("PM2.5|P19|");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P19]);
+    break;
+
+  case PORT_CO2_P16:
+    Serial.print("CO2|P16|");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P16]);
+    break;
+  case PORT_CO2_P17:
+    Serial.print("CO2|P17|");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P17]);
+    break;
+  case PORT_CO2_P20:
+    Serial.print("CO2|P20|");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P20]);
+    break;
+  case PORT_CO2_P21:
+    Serial.print("CO2|P21|");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P21]);
+    break;
+}}
