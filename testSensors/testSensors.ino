@@ -122,7 +122,7 @@ void setup() {
   pinMode(UMUX_B,OUTPUT);
   pinMode(UMUX_C,OUTPUT);
   pinMode(UART_EN,OUTPUT);
-
+  Serial.println("getReady");
   unsigned long timeAtStart;
   bool timeExceeded=false;
   Serial.println("If you want to maintain current settings and not change anyhting then just wait ten seconds.");
@@ -195,15 +195,14 @@ void setup() {
   digitalWrite(UMUX_A,HIGH);
   digitalWrite(UART_EN,HIGH);//this will always be set to high
   digitalWrite(MUX_INH,LOW);
-  
+  Serial.println("startWriting");
 }
 
 void loop() {
   if (context.Iterate.done==false){
     if (context.Iterate.portTrack==PORT_PM_P19||context.Iterate.portTrack==PORT_PM_P14||context.Iterate.portTrack==PORT_PM_P15||context.Iterate.portTrack==PORT_PM_P18){
       pmsSensor();//if currently at the ports intended for PMS sensors, use the function intended for those sensors
-    }
-    else if (context.Iterate.portTrack==PORT_CO2_P20||context.Iterate.portTrack==PORT_CO2_P21||context.Iterate.portTrack==PORT_CO2_P16||context.Iterate.portTrack==PORT_CO2_P17){
+    }else if (context.Iterate.portTrack==PORT_CO2_P20||context.Iterate.portTrack==PORT_CO2_P21||context.Iterate.portTrack==PORT_CO2_P16||context.Iterate.portTrack==PORT_CO2_P17){
       co2Sensor();//if currently at the ports intended for CO2 sensors, use the function intended for those sensors
     }
   }else{
@@ -271,9 +270,7 @@ void pmsSensor(){
       // If data is 0x42, transition
       if (data!=-1 && data==0x42){
         context.PMS.pmStateSelect=wait_for_write_signal_77;
-      }
-      // ELSE IF NO DATA AND TIMEOUT OCCURRED
-      else if (data == -1 && millis() > context.PMS.timeLimit) {
+      }else if (data == -1 && millis() > context.PMS.timeLimit) {
         context.Iterate.displayArray[context.Iterate.portTrack]=CF;
         context.PMS.pmStateSelect = mark_reading_as_done;
       }
@@ -286,14 +283,10 @@ void pmsSensor(){
         context.PMS.pmStateSelect=write_data_to_array;
         context.PMS.dataArray[context.PMS.position]=data;
         context.PMS.position++; // Increment position
-      }
-      // ELSE IF NO DATA AND TIMEOUT OCCURRED
-      else if (data == -1 && millis() > context.PMS.timeLimit) {
+      }else if (data == -1 && millis() > context.PMS.timeLimit) {
         context.Iterate.displayArray[context.Iterate.portTrack]=CF;
         context.PMS.pmStateSelect = mark_reading_as_done;
-      }
-      // ELSE (data is not -1 but not 0x4D) - this means a wrong byte after 0x42
-      else if (data != -1) { 
+      }else if (data != -1) { 
         context.PMS.pmStateSelect=read_data_looking_for_66;
         context.PMS.position = 1; // Reset position
       }
@@ -307,6 +300,9 @@ void pmsSensor(){
         context.PMS.position++;
         // Serial.print("PMS: Stored byte to position "); Serial.print(context.PMS.position - 1);
         // Serial.print(", Current Pos: "); Serial.println(context.PMS.position); // Debug print
+      }else if (data == -1 && millis() > context.PMS.timeLimit) {
+        context.Iterate.displayArray[context.Iterate.portTrack]=CF;
+        context.PMS.pmStateSelect = mark_reading_as_done;
       }
       // If array is full (32 bytes collected)
       if (context.PMS.position==32){
@@ -346,7 +342,6 @@ void pmsSensor(){
   }
 }
 //make flowchart
-//add time out for writing data to array
 //add option to know which ports to ignore because of high or low on 3V3 port
 void co2Sensor(){
   switch (context.CO2.co2StateSelect){
@@ -485,52 +480,44 @@ void renderDisplay(){
 void printSerialDisplay(){
   switch (context.Iterate.portTrack){
   case PORT_PM_P14:
-    Serial.print("PM2.5|P14|");
-    Serial.print(context.Iterate.displayArray[PORT_PM_P14]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("PM2.5,P14,");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P14]);
+
     break;
   case PORT_PM_P15:
-    Serial.print("PM2.5|P15|");
-    Serial.print(context.Iterate.displayArray[PORT_PM_P15]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("PM2.5,P15,");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P15]);
+
     break;
   case PORT_PM_P18:
-    Serial.print("PM2.5|P18|");
-    Serial.print(context.Iterate.displayArray[PORT_PM_P18]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("PM2.5,P18,");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P18]);
+
     break;
   case PORT_PM_P19:
-    Serial.print("PM2.5|P19|");
-    Serial.print(context.Iterate.displayArray[PORT_PM_P19]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("PM2.5,P19,");
+    Serial.println(context.Iterate.displayArray[PORT_PM_P19]);
+
     break;
 
   case PORT_CO2_P16:
-    Serial.print("CO2|P16|");
-    Serial.print(context.Iterate.displayArray[PORT_CO2_P16]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("CO2,P16,");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P16]);
+
     break;
   case PORT_CO2_P17:
-    Serial.print("CO2|P17|");
-    Serial.print(context.Iterate.displayArray[PORT_CO2_P17]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("CO2,P17,");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P17]);
+
     break;
   case PORT_CO2_P20:
-    Serial.print("CO2|P20|");
-    Serial.print(context.Iterate.displayArray[PORT_CO2_P20]);
-    Serial.print("|");
-    Serial.println(millis());
+    Serial.print("CO2,P20,");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P20]);
+
     break;
-    case PORT_CO2_P21:
-    Serial.print("CO2|P21|");
-    Serial.print(context.Iterate.displayArray[PORT_CO2_P21]);
-    Serial.print("|");
-    Serial.println(millis());
+  case PORT_CO2_P21:
+    Serial.print("CO2,P21,");
+    Serial.println(context.Iterate.displayArray[PORT_CO2_P21]);
+
     break;
 }}
