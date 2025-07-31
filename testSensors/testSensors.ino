@@ -94,6 +94,27 @@ struct programContext{
   struct co2Sensor CO2;
   struct portIterate Iterate;
 };
+
+class switches{
+  public:
+  int portNumber;
+  switches(int pin){
+    portNumber=pin;
+    pinMode(portNumber,INPUT_PULLUP);
+  }
+  int getState(){
+    int state = digitalRead(portNumber);
+    return state;
+  }
+};
+switches P14(5);
+switches P15(12);
+switches P16(13);
+switches P17(14);
+switches P18(27);
+switches P19(26);
+switches P20(25);
+switches P21(33);
 static struct programContext context;
 //function declarations
 void portSelect(int select);
@@ -102,6 +123,7 @@ void co2Sensor();
 void print_reading(char *title, int val);
 void renderDisplay();
 void printSerialDisplay();
+String getPortSwitchState();
 
 void setup() {
   Serial.begin(115200);
@@ -257,7 +279,11 @@ void pmsSensor(){
   if (multiplex.available()) {
     data = multiplex.read();
   }
-
+  String switchCheckPM=getPortSwitchState();
+  if (switchCheckPM=="OFF"){
+    context.Iterate.displayArray[context.Iterate.portTrack]=CF;
+    context.PMS.pmStateSelect = mark_reading_as_done;
+  }
   switch (context.PMS.pmStateSelect){
     case read_data_looking_for_66:
       if (context.Iterate.newPort==true){
@@ -279,7 +305,10 @@ void pmsSensor(){
     
     case wait_for_write_signal_77:
       // If data is 0x4D, transition
+
       if (data!=-1 && data==0x4D){
+        context.PMS.timeSinceStart=millis();
+        context.PMS.timeLimit=context.PMS.timeSinceStart+1000;
         context.PMS.pmStateSelect=write_data_to_array;
         context.PMS.dataArray[context.PMS.position]=data;
         context.PMS.position++; // Increment position
@@ -334,6 +363,8 @@ void pmsSensor(){
       break;
 
     case mark_reading_as_done:
+      memset(context.PMS.dataArray, 0, sizeof(context.PMS.dataArray));
+      context.PMS.dataArray[0]=66;
       context.PMS.position=1;
       context.Iterate.done=true;
       context.Iterate.newPort=true;
@@ -344,6 +375,13 @@ void pmsSensor(){
 //make flowchart
 //add option to know which ports to ignore because of high or low on 3V3 port
 void co2Sensor(){
+  String switchCheckCO2=getPortSwitchState();
+  if (switchCheckCO2=="OFF"){
+    context.Iterate.displayArray[context.Iterate.portTrack]=CF;    
+    context.Iterate.done=true;
+    context.Iterate.newPort=true;
+    context.CO2.co2StateSelect=mark_reading_as_done_co2;
+  }  
   switch (context.CO2.co2StateSelect){
     case send_data_request_to_sensor:
       while (multiplex.available()) {
@@ -521,3 +559,16 @@ void printSerialDisplay(){
 
     break;
 }}
+
+String getPortSwitchState() {
+  if (context.Iterate.portTrack == PORT_PM_P14 && P14.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_PM_P15 && P15.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_PM_P18 && P18.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_PM_P19 && P19.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_CO2_P16 && P16.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_CO2_P17 && P17.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_CO2_P20 && P20.getState() == HIGH) return "OFF";
+  if (context.Iterate.portTrack == PORT_CO2_P21 && P21.getState() == HIGH) return "OFF";
+
+  return "ON";
+}
