@@ -1,6 +1,15 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <BLEDevice.h>  // Core BLE functionalities: Initialize the BLE chip
+#include <BLEServer.h>  // For creating a BLE server on the ESP32
+#include <BLEUtils.h>   // Utility functions for BLE (e.g., UUID handling)
+#include <BLE2902.h>    // For a standard BLE descriptor (Client Characteristic Configuration Descriptor)
+
+// Define the BLE Service UUID
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+// Define the BLE Characteristic UUID
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -14,6 +23,13 @@
 
 #define TX 18//the port where TX wire connects
 #define RX 19//the port where RX wire connects
+
+//bluetooth low energy universal variables
+BLEServer* pServer = NULL;          // Pointer to the BLE server object
+BLECharacteristic* pCharacteristic = NULL; // Pointer to the BLE characteristic object
+bool deviceConnected = false;       // Flag: true if a client is currently connected
+bool oldDeviceConnected = false;    // Flag: stores the previous connection state (for change detection)
+uint32_t value = 0;                 // A simple counter to simulate sensor data
 
 Adafruit_SSD1306 display(SCREEN_WIDTH,SCREEN_HEIGHT,&Wire,OLED_RESET);
 //defining ports to be used by the UART2
@@ -107,6 +123,49 @@ class switches{
     return state;
   }
 };
+
+//bluetooth low energy classes
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      Serial.println("Client connected!");
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      Serial.println("Client disconnected!");
+      // Restart advertising when a client disconnects
+      pServer->startAdvertising(); // Make the ESP32 discoverable again
+    }
+};
+class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      // Get the value written by the client as an Arduino String
+      String rxValue = pCharacteristic->getValue(); // Get data from client
+
+      if (rxValue.length() > 0) { // Check if any data was actually received
+        Serial.print("Received Value: ");
+        for (int i = 0; i < rxValue.length(); i++)
+          Serial.print(rxValue[i]); // Print each character
+        Serial.println();
+
+        // You can add your logic here based on the received value
+        if (rxValue.indexOf("hello") != -1) { // Check if "hello" is in the received string
+          Serial.println("Received 'hello'!");
+        }
+      }
+    }
+
+    void onRead(BLECharacteristic *pCharacteristic) {
+      // This function is called when a client explicitly reads from this characteristic
+      Serial.println("Client requested a read.");
+      // You can update the characteristic value here before it's read
+      // For example, send sensor data or a status message
+      String response = "Hello from ESP32! Value: " + String(value); // Prepare the string to send
+      pCharacteristic->setValue(response); // Set the characteristic's value
+    }
+};
+
 switches P14(5);
 switches P15(12);
 switches P16(13);
@@ -124,6 +183,7 @@ void print_reading(char *title, int val);
 void renderDisplay();
 void printSerialDisplay();
 String getPortSwitchState();
+void sendDataByBLE();
 
 void setup() {
   Serial.begin(115200);
@@ -145,6 +205,48 @@ void setup() {
   pinMode(UMUX_C,OUTPUT);
   pinMode(UART_EN,OUTPUT);
   Serial.println("getReady");
+  Serial.println("Starting BLE server...");
+
+  // Create the BLE Device
+  BLEDevice::init("MyESP32_BLE_Server"); // Initialize BLE and set the device's broadcast name
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer(); // Create the server instance
+  pServer->setCallbacks(new MyServerCallbacks()); // Assign our server event handler
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID); // Create a service with our custom UUID
+
+  // Create a BLE Characteristic within the service
+  pCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID, // Our custom characteristic UUID
+                      BLECharacteristic::PROPERTY_READ |  // Client can read this characteristic
+                      BLECharacteristic::PROPERTY_WRITE | // Client can write to this characteristic
+                      BLECharacteristic::PROPERTY_NOTIFY  // ESP32 can send notifications when value changes
+                    );
+
+  // Set the characteristic callbacks
+  pCharacteristic->setCallbacks(new MyCharacteristicCallbacks()); // Assign our characteristic event handler
+
+  // Add a descriptor to the characteristic (optional, but good practice for notifications)
+  pCharacteristic->addDescriptor(new BLE2902()); // Allows client to enable/disable notifications
+
+  // Start the service
+  pService->start(); // Make the service active
+
+  // Get the advertising object from the server and configure it
+  BLEAdvertising *pAdvertising = pServer->getAdvertising(); // Get the advertising object
+  pAdvertising->addServiceUUID(SERVICE_UUID); // Include our service UUID in advertising data
+  pAdvertising->setScanResponse(true); // Allow more info to be sent upon scan request
+  // These lines (setMinPreferredProcessors) are often for specific connection parameters
+  // and might not be directly available or needed in all library versions.
+  // They are commented out because they caused compilation errors in your environment.
+  // pAdvertising->setMinPreferredProcessors(0x06);
+  // pAdvertising->setMinPreferredProcessors(0x12);
+  BLEDevice::startAdvertising(); // Start broadcasting the device's presence
+  Serial.println("Characteristic defined! Now you can connect to your ESP32.");
+
+  
   unsigned long timeAtStart;
   bool timeExceeded=false;
   Serial.println("If you want to maintain current settings and not change anyhting then just wait ten seconds.");
@@ -229,6 +331,7 @@ void loop() {
     }
   }else{
     printSerialDisplay();
+    sendDataByBLE();
     context.Iterate.portTrack = static_cast<Port>(static_cast<int>(context.Iterate.portTrack) + 1);//when I haven't reached portTrack 8, iterate because I am not done getting data from each port
     if (context.Iterate.portTrack==PORT_MAX){
       context.Iterate.portTrack=PORT_MIN;
@@ -561,14 +664,87 @@ void printSerialDisplay(){
 }}
 
 String getPortSwitchState() {
-  if (context.Iterate.portTrack == PORT_PM_P14 && P14.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_PM_P15 && P15.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_PM_P18 && P18.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_PM_P19 && P19.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_CO2_P16 && P16.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_CO2_P17 && P17.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_CO2_P20 && P20.getState() == HIGH) return "OFF";
-  if (context.Iterate.portTrack == PORT_CO2_P21 && P21.getState() == HIGH) return "OFF";
+  switch (context.Iterate.portTrack) {
+    case PORT_PM_P14:
+      if (P14.getState() == HIGH) return "OFF";
+      break;
+    case PORT_PM_P15:
+      if (P15.getState() == HIGH) return "OFF";
+      break;
+    case PORT_PM_P18:
+      if (P18.getState() == HIGH) return "OFF";
+      break;
+    case PORT_PM_P19:
+      if (P19.getState() == HIGH) return "OFF";
+      break;
+    case PORT_CO2_P16:
+      if (P16.getState() == HIGH) return "OFF";
+      break;
+    case PORT_CO2_P17:
+      if (P17.getState() == HIGH) return "OFF";
+      break;
+    case PORT_CO2_P20:
+      if (P20.getState() == HIGH) return "OFF";
+      break;
+    case PORT_CO2_P21:
+      if (P21.getState() == HIGH) return "OFF";
+      break;
+  }
 
   return "ON";
+}
+
+void sendDataByBLE(){
+  // Disconnecting and connecting logic... (no changes needed here)
+  if (!deviceConnected && oldDeviceConnected) {
+    delay(500); 
+    oldDeviceConnected = deviceConnected; 
+  }
+  if (deviceConnected && !oldDeviceConnected) {
+    oldDeviceConnected = deviceConnected; 
+  }
+
+  // Update the characteristic value periodically and notify connected clients
+  if (deviceConnected) { 
+    // Create a static char array to hold the full message. 
+    // It's a good practice to make it large enough for your longest possible string.
+    char dataBuffer[50]; 
+
+    switch (context.Iterate.portTrack){
+    case PORT_PM_P14:
+      // Use sprintf to format the data directly into the buffer.
+      sprintf(dataBuffer, "PM2.5,P14,%d", context.Iterate.displayArray[PORT_PM_P14]);
+      break;
+    case PORT_PM_P15:
+      sprintf(dataBuffer, "PM2.5,P15,%d", context.Iterate.displayArray[PORT_PM_P15]);
+      break;
+    case PORT_PM_P18:
+      sprintf(dataBuffer, "PM2.5,P18,%d", context.Iterate.displayArray[PORT_PM_P18]);
+      break;
+    case PORT_PM_P19:
+      sprintf(dataBuffer, "PM2.5,P19,%d", context.Iterate.displayArray[PORT_PM_P19]);
+      break;
+    case PORT_CO2_P16:
+      sprintf(dataBuffer, "CO2,P16,%d", context.Iterate.displayArray[PORT_CO2_P16]);
+      break;
+    case PORT_CO2_P17:
+      sprintf(dataBuffer, "CO2,P17,%d", context.Iterate.displayArray[PORT_CO2_P17]);
+      break;
+    case PORT_CO2_P20:
+      sprintf(dataBuffer, "CO2,P20,%d", context.Iterate.displayArray[PORT_CO2_P20]);
+      break;
+    case PORT_CO2_P21:
+      sprintf(dataBuffer, "CO2,P21,%d", context.Iterate.displayArray[PORT_CO2_P21]);
+      break;
+    }
+
+    // Set the new value for the characteristic
+    pCharacteristic->setValue(dataBuffer); 
+    // Notify connected clients that the value has changed
+    pCharacteristic->notify(); 
+
+    // The delay here is good, it prevents you from spamming the client
+    // with data faster than it can process, which can also lead to issues.
+    delay(1000); 
+  }
 }
