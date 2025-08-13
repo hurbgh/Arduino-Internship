@@ -475,8 +475,7 @@ void pmsSensor(){
       break;
   }
 }
-//make flowchart
-//add option to know which ports to ignore because of high or low on 3V3 port
+
 void co2Sensor(){
   String switchCheckCO2=getPortSwitchState();
   if (switchCheckCO2=="OFF"){
