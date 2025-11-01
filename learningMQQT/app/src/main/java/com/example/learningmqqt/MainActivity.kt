@@ -14,7 +14,18 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.example.learningmqqt.ui.theme.LearningMQQTTheme
 
 class MainActivity : ComponentActivity() {
+    private lateinit var mqttClient: MqttAndroidClient
     override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Call your MQTT connect function here
+        mqttConnect(
+            applicationContext,
+            "broker.hivemq.com", // Replace with your broker address
+            "yourUsername",
+            "yourPassword"
+        )
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {

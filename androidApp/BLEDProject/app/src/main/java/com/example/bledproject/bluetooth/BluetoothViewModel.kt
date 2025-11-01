@@ -135,6 +135,7 @@ class BluetoothViewModel(
 			Log.i("Message handler", message)
 			receivedData.value = message
 			messageHandler(message)
+			//mqttManager.publish("ble/data", data ?: "null")
 
 			if (isRecording.value) {
 				val timestamp = System.currentTimeMillis()
