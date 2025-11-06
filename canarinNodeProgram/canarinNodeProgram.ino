@@ -1,3 +1,58 @@
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+
+#define BME_SCK 13
+#define BME_MISO 12
+#define BME_MOSI 11
+#define BME_CS 10
+
+#define SEALEVELPRESSURE_HPA (1013.25)
+
+Adafruit_BME280 bme; // I2C
+
+unsigned long delayTime;
+
+class COSensor{
+  private:
+    HardwareSerial& serialPort;
+    int rxPin;
+    int txPin;
+  public:
+    COSensor(HardwareSerial& port, int rx, int tx) 
+      : serialPort(port), rxPin(rx), txPin(tx) {}
+    
+    void begin(){
+      serialPort.begin(9600, SERIAL_8N1, rxPin, txPin);
+    }
+
+    void getData(){
+      byte response[9];
+      unsigned long timeout = millis() + 3000;
+      while (serialPort.available() < 9 && millis() < timeout);
+      for (int i = 0; i < 9; i++) {
+        response[i] = serialPort.read();
+      }
+      int checksum = 0;
+      for (int i = 1; i < 8; i++) {
+        checksum += response[i];
+      }
+      checksum = 0xFF - checksum + 1;
+      if (checksum == response[8]) {
+      int co_ppm = (response[2] << 8) + response[3];
+      Serial.print("CO concentration: ");
+      Serial.print(co_ppm);
+      Serial.println(" ppm");
+      } else {
+        Serial.println("Checksum failed");
+      }
+
+
+    }
+
+};
+
 class PMS7003Sensor {
   private:
     int rxPin;
@@ -51,9 +106,6 @@ class PMS7003Sensor {
             Serial.println("The data has bad integrity. Check code failed.");
           }
 
-          for (int i =0;i<32;i++){
-            Serial.println(dataArray[i]);
-          }
 
           Serial.print("PM2.5 concentration unit μ g/m3 standard particle: ");
           Serial.println((dataArray[6] * 256) + dataArray[7]);
@@ -68,23 +120,112 @@ class PMS7003Sensor {
 
 class MHZ16 {
   private:
+    HardwareSerial& serialPort;
+    int rxPin;
+    int txPin;
+    byte dataResponse[9];
+    int checkSum = 0;
 
-  
   public:
-    
+    MHZ16(HardwareSerial& port, int rx, int tx)
+      : serialPort(port), rxPin(rx), txPin(tx) {}
+
+    void begin() {
+      serialPort.begin(9600, SERIAL_8N1, rxPin, txPin);
+    }
+
+    void getCO2Data() {
+      // Flush any old data
+      while (serialPort.available()) {
+        serialPort.read();
+      }
+
+      // Wait for response
+      unsigned long timeLimit = millis() + 3000;
+      while (serialPort.available() < 9) {
+        Serial.print("Bytes available: ");
+        Serial.println(serialPort.available());
+        if (millis() > timeLimit) {
+          Serial.println("Timeout waiting for CO2 data");
+          return;
+        }
+      }
+
+      // Read 9 bytes
+      for (int i = 0; i < 9; i++) {
+        dataResponse[i] = serialPort.read();
+      }
+
+      // Print raw frame for debugging
+      Serial.println("Raw CO2 frame:");
+      for (int i = 0; i < 9; i++) {
+        Serial.print(dataResponse[i], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+
+      // Validate frame header
+      if (dataResponse[0] != 0xFF || dataResponse[1] != 0x86) {
+        Serial.println("Invalid CO2 frame header");
+        return;
+      }
+
+      checkSum = 0;
+      for (int i = 1; i < 8; i++) { // start from index 1
+        checkSum += dataResponse[i];
+      }
+      checkSum = 0xFF - checkSum + 1;
+      checkSum &= 0xFF; // ensure it's a byte
+
+
+      if (checkSum == dataResponse[8]) {
+        int co2Data = (dataResponse[2] << 8) + dataResponse[3];
+        Serial.print("The CO2 concentration is ");
+        Serial.print(co2Data);
+        Serial.println(" ppm");
+      } else {
+        Serial.println("Check Code failed!");
+      }
+
+    }
 };
 
+
+//PMS7003
 #define RX 18
 #define TX 5
 HardwareSerial pmsConnect(1); // using UART1
-
 PMS7003Sensor pmSensor(pmsConnect, RX, TX);
+
+//MH-Z16
+#define CO2_RX 16
+#define CO2_TX 17
+HardwareSerial sharedSerial(2); // UART2
+MHZ16 co2Sensor(sharedSerial, CO2_RX, CO2_TX);
+
+//ZE-07
+#define CO_RX 14
+#define CO_TX 27
+COSensor coConnect(sharedSerial,CO_RX,CO_TX);//MH-Z16 and ZE-07 share the same hardware serial port!
 
 void setup() {
   Serial.begin(115200);
   pmSensor.begin();
 
-  /*byte switchToPassive[7] = {0x42, 0x4D, 0xE1, 0x00, 0x00, 0x01, 0x70};
+  unsigned status;
+    
+  // default settings
+  status = bme.begin(0x76);
+  delayTime = 1000;
+
+  sharedSerial.begin(9600, SERIAL_8N1, CO2_RX, CO2_TX);
+  //turning off self calibration in MH-Z16
+  byte turnOffSelfCalibration[9]={0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};
+  sharedSerial.write(turnOffSelfCalibration,9);
+
+
+  //Making PMS7003 switch to passive mode
+  byte switchToPassive[7] = {0x42, 0x4D, 0xE1, 0x00, 0x00, 0x01, 0x70};
   pmsConnect.write(switchToPassive, 7);
 
   unsigned long startTime = millis();
@@ -109,8 +250,12 @@ void setup() {
     Serial.println("Successfully changed to passive mode!");
   } else {
     Serial.println("Failed to change to passive mode.");
-  }*/
+  }
   
+  sharedSerial.begin(9600, SERIAL_8N1, CO_RX, CO_TX);
+  byte setCOSensorToPassive[9]={0xFF,0x01,0x78,0x41,0x00,0x00,0x00,0x00,0x46};
+  sharedSerial.write(setCOSensorToPassive,9);
+
 }
 
 void loop() {
@@ -119,18 +264,70 @@ void loop() {
   byte requestDataPM[7]={0x42,0x4D,0xE2,0x00,0x00,0x01,0x71};//ask to send data
   byte sleep[7]={0x42,0x4D,0xE4,0x00,0x00,0x01,0x73};//sleep
 
+  Serial.println("Now reading PMS7003");
+  while (sharedSerial.available()) {
+  sharedSerial.read();//clear buffer
+  }
+
   pmsConnect.write(wakeUp, 7);
   delay(30000); // allow sensor to wake up
 
-  pmsConnect.write(requestDataPM, 7);
-  
+  while (pmsConnect.available()) {
+  pmsConnect.read();//clear buffer first before sending request
+  }
+
+  pmsConnect.write(requestDataPM, 7);//request sent
+  delay(100);
 
   unsigned long timeLimit = millis() + 3000;
   while (millis() < timeLimit){
-    pmSensor.readAndPrintPM25();
+    pmSensor.readAndPrintPM25();//read data
+  }
+
+  pmsConnect.write(sleep,7);//go to sleep to save battery
+  Serial.println("Now reading MH-Z16");
+  sharedSerial.begin(9600, SERIAL_8N1, CO2_RX, CO2_TX);
+
+  while (sharedSerial.available()) {
+  sharedSerial.read();//clear buffer
   }
   
-  pmsConnect.write(sleep, 7);
+  byte requestCO2Data[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
+  sharedSerial.write(requestCO2Data, 9);//request data
+  co2Sensor.getCO2Data();//read data
+  Serial.println("Now reading BME280");
+  //BME280
+  printValues();
+  delay(delayTime);
 
+  while (sharedSerial.available()) sharedSerial.read(); // clear buffer
+  Serial.println("Now reading ZE-07");
+  //For ZE-07
+  sharedSerial.begin(9600, SERIAL_8N1, CO_RX, CO_TX);
+  byte requestCOData[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
+  sharedSerial.write(requestCOData,9);
+  coConnect.getData();
   
 }
+
+void printValues() {
+    Serial.print("Temperature = ");
+    Serial.print(bme.readTemperature());
+    Serial.println(" °C");
+
+    Serial.print("Pressure = ");
+
+    Serial.print(bme.readPressure() / 100.0F);
+    Serial.println(" hPa");
+
+    Serial.print("Approx. Altitude = ");
+    Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
+    Serial.println(" m");
+
+    Serial.print("Humidity = ");
+    Serial.print(bme.readHumidity());
+    Serial.println(" %");
+
+    Serial.println();
+}
+
