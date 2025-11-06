@@ -27,7 +27,7 @@ class COSensor{
       serialPort.begin(9600, SERIAL_8N1, rxPin, txPin);
     }
 
-    void getData(){
+    int getCOData(){
       byte response[9];
       unsigned long timeout = millis() + 3000;
       while (serialPort.available() < 9 && millis() < timeout);
@@ -41,11 +41,9 @@ class COSensor{
       checksum = 0xFF - checksum + 1;
       if (checksum == response[8]) {
       int co_ppm = (response[2] << 8) + response[3];
-      Serial.print("CO concentration: ");
-      Serial.print(co_ppm);
-      Serial.println(" ppm");
+      return co_ppm;
       } else {
-        Serial.println("Checksum failed");
+        return 0;
       }
 
 
@@ -72,7 +70,7 @@ class PMS7003Sensor {
       dataArray[0] = 66;
     }
 
-    void readAndPrintPM25() {
+    int getPMData() {
       if (serialPort.available()) {
         int data = serialPort.read();
 
@@ -99,20 +97,17 @@ class PMS7003Sensor {
             sumForCheck += dataArray[i];
           }
 
-          Serial.println("----------------------------------------------------------");
+          
           if (checkCode == sumForCheck) {
-            Serial.println("The data has good integrity. Check code success.");
+            return (dataArray[6] * 256) + dataArray[7];
           } else {
-            Serial.println("The data has bad integrity. Check code failed.");
-          }
-
-
-          Serial.print("PM2.5 concentration unit μ g/m3 standard particle: ");
-          Serial.println((dataArray[6] * 256) + dataArray[7]);
-          Serial.println("----------------------------------------------------------");
+            return 0;
+          }    
 
           safety = false;
           position = 1;
+        }else{
+          return 0;
         }
       }
     }
@@ -134,60 +129,40 @@ class MHZ16 {
       serialPort.begin(9600, SERIAL_8N1, rxPin, txPin);
     }
 
-    void getCO2Data() {
-      // Flush any old data
-      while (serialPort.available()) {
-        serialPort.read();
-      }
+    int getCO2Data() {
+  while (serialPort.available()) serialPort.read(); // flush buffer
 
-      // Wait for response
-      unsigned long timeLimit = millis() + 3000;
-      while (serialPort.available() < 9) {
-        Serial.print("Bytes available: ");
-        Serial.println(serialPort.available());
-        if (millis() > timeLimit) {
-          Serial.println("Timeout waiting for CO2 data");
-          return;
-        }
-      }
+  unsigned long timeout = millis() + 3000;
+  while (serialPort.available() < 9 && millis() < timeout);
 
-      // Read 9 bytes
-      for (int i = 0; i < 9; i++) {
-        dataResponse[i] = serialPort.read();
-      }
+  if (serialPort.available() < 9) {
+    Serial.println("Timeout waiting for CO2 data");
+    return 0;
+  }
 
-      // Print raw frame for debugging
-      Serial.println("Raw CO2 frame:");
-      for (int i = 0; i < 9; i++) {
-        Serial.print(dataResponse[i], HEX);
-        Serial.print(" ");
-      }
-      Serial.println();
+  for (int i = 0; i < 9; i++) {
+    dataResponse[i] = serialPort.read();
+  }
 
-      // Validate frame header
-      if (dataResponse[0] != 0xFF || dataResponse[1] != 0x86) {
-        Serial.println("Invalid CO2 frame header");
-        return;
-      }
+  if (dataResponse[0] != 0xFF || dataResponse[1] != 0x86) {
+    Serial.println("Invalid CO2 frame header");
+    return 0;
+  }
 
-      checkSum = 0;
-      for (int i = 1; i < 8; i++) { // start from index 1
-        checkSum += dataResponse[i];
-      }
-      checkSum = 0xFF - checkSum + 1;
-      checkSum &= 0xFF; // ensure it's a byte
+  checkSum = 0;
+  for (int i = 1; i < 8; i++) checkSum += dataResponse[i];
+  checkSum = 0xFF - checkSum + 1;
+  checkSum &= 0xFF;
 
+  if (checkSum == dataResponse[8]) {
+    int co2Data = (dataResponse[2] << 8) + dataResponse[3];
+    return co2Data;
+  } else {
+    Serial.println("CO2 checksum failed");
+    return 0;
+  }
+}
 
-      if (checkSum == dataResponse[8]) {
-        int co2Data = (dataResponse[2] << 8) + dataResponse[3];
-        Serial.print("The CO2 concentration is ");
-        Serial.print(co2Data);
-        Serial.println(" ppm");
-      } else {
-        Serial.println("Check Code failed!");
-      }
-
-    }
 };
 
 
@@ -258,13 +233,21 @@ void setup() {
 
 }
 
+int pmData=0;
+int co2Data=0;
+int coData=0;
+float temp=0;
+float humidity=0;
+float altitude=0;
+float airPressure=0;
+
 void loop() {
   //For PMS7003
   byte wakeUp[7]={0x42,0x4D,0xE4,0x00,0x01,0x01,0x74};//wakeup
   byte requestDataPM[7]={0x42,0x4D,0xE2,0x00,0x00,0x01,0x71};//ask to send data
   byte sleep[7]={0x42,0x4D,0xE4,0x00,0x00,0x01,0x73};//sleep
 
-  Serial.println("Now reading PMS7003");
+  //Serial.println("Now reading PMS7003");
   while (sharedSerial.available()) {
   sharedSerial.read();//clear buffer
   }
@@ -281,11 +264,11 @@ void loop() {
 
   unsigned long timeLimit = millis() + 3000;
   while (millis() < timeLimit){
-    pmSensor.readAndPrintPM25();//read data
+    pmData=pmSensor.getPMData();//read data
   }
 
   pmsConnect.write(sleep,7);//go to sleep to save battery
-  Serial.println("Now reading MH-Z16");
+  //Serial.println("Now reading MH-Z16");
   sharedSerial.begin(9600, SERIAL_8N1, CO2_RX, CO2_TX);
 
   while (sharedSerial.available()) {
@@ -294,23 +277,41 @@ void loop() {
   
   byte requestCO2Data[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
   sharedSerial.write(requestCO2Data, 9);//request data
-  co2Sensor.getCO2Data();//read data
-  Serial.println("Now reading BME280");
+  co2Data=co2Sensor.getCO2Data();//read data
+  //Serial.println("Now reading BME280");
   //BME280
-  printValues();
+  airValues();
   delay(delayTime);
 
   while (sharedSerial.available()) sharedSerial.read(); // clear buffer
-  Serial.println("Now reading ZE-07");
+  //Serial.println("Now reading ZE-07");
   //For ZE-07
   sharedSerial.begin(9600, SERIAL_8N1, CO_RX, CO_TX);
   byte requestCOData[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
   sharedSerial.write(requestCOData,9);
-  coConnect.getData();
+  coData=coConnect.getCOData();
   
+  String sensorData = String(pmData) + "," +
+                    String(co2Data) + "," +
+                    String(coData) + "," +
+                    String(temp) + "," +
+                    String(humidity) + "," +
+                    String(airPressure) + "," +
+                    String(altitude);
+
+  Serial.println(sensorData);
+
 }
 
-void printValues() {
+void airValues() {
+  
+  temp = bme.readTemperature();
+  airPressure = bme.readPressure() / 100.0F;
+  altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
+  humidity = bme.readHumidity();
+
+
+  /*
     Serial.print("Temperature = ");
     Serial.print(bme.readTemperature());
     Serial.println(" °C");
@@ -329,5 +330,6 @@ void printValues() {
     Serial.println(" %");
 
     Serial.println();
+    return bme.readTemperature(),bme.readPressure() / 100.0F,bme.readAltitude(SEALEVELPRESSURE_HPA),bme.readHumidity();*/
 }
 
