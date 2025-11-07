@@ -2,6 +2,20 @@
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include "BluetoothSerial.h"
+
+String device_name = "Canarin Node";
+// Check if Bluetooth is available
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+// Check Serial Port Profile
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Port Profile for Bluetooth is not available or not enabled. It is only available for the ESP32 chip.
+#endif
+
+BluetoothSerial SerialBT;
 
 #define BME_SCK 13
 #define BME_MISO 12
@@ -230,7 +244,9 @@ void setup() {
   sharedSerial.begin(9600, SERIAL_8N1, CO_RX, CO_TX);
   byte setCOSensorToPassive[9]={0xFF,0x01,0x78,0x41,0x00,0x00,0x00,0x00,0x46};
   sharedSerial.write(setCOSensorToPassive,9);
-
+  SerialBT.begin(device_name);  //Bluetooth device name
+  //SerialBT.deleteAllBondedDevices(); // Uncomment this to delete paired devices; Must be called after begin
+  Serial.printf("The device with name \"%s\" is started.\nNow you can pair it with Bluetooth!\n", device_name.c_str());
 }
 
 int pmData=0;
@@ -299,7 +315,9 @@ void loop() {
                     String(airPressure) + "," +
                     String(altitude);
 
-  Serial.println(sensorData);
+  SerialBT.println(sensorData);  // ✅ Sends data over Bluetooth
+  Serial.println(sensorData);    // Optional: also print to USB serial
+  delay(20);
 
 }
 

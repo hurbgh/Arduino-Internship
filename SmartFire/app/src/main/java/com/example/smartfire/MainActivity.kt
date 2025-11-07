@@ -9,8 +9,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.NavController
-import BluetoothViewModel
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Intent
@@ -23,15 +21,18 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.smartfire.ui.theme.SmartFireTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     lateinit var bluetoothManager: BluetoothManager
@@ -74,13 +75,20 @@ class MainActivity : ComponentActivity() {
             SmartFireTheme {
                 val navController = rememberNavController()
                 val viewModel: BluetoothViewModel = viewModel()
+                viewModel.setupMqtt()
+                LaunchedEffect(Unit) {
+                    delay(2000) // wait 2 seconds for MQTT to connect
+                }
+
+
 
                 NavHost(navController = navController, startDestination = "main") {
                     composable("main") {
                         MainScreen(
                             bluetoothAdapter = bluetoothAdapter,
                             permissionLauncher = permissionLauncher,
-                            navController = navController
+                            navController = navController,
+                            viewModel = viewModel
                         )
                     }
                     composable("home") {
@@ -93,6 +101,7 @@ class MainActivity : ComponentActivity() {
                     composable("connected") {
                         ConnectedScreen(viewModel = viewModel)
                     }
+
                 }
             }
         }
@@ -103,7 +112,9 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(
     bluetoothAdapter: BluetoothAdapter,
     permissionLauncher: ActivityResultLauncher<Array<String>>,
-    navController: androidx.navigation.NavController
+    navController: NavController,
+    viewModel: BluetoothViewModel
+
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -144,6 +155,14 @@ fun MainScreen(
         }) {
             Text("Display Bluetooth Paired Devices", fontSize = 30.sp, fontWeight = FontWeight.Bold)
         }
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedButton(onClick = {
+            viewModel.publishJson("smartfire/test", "{\"test\":\"hello\"}")
+        }) {
+            Text("Test MQTT Publish", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+
     }
 }
 

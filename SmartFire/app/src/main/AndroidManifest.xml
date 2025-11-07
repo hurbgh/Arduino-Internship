@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
@@ -16,6 +17,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SmartFire">
+
+        <!-- ✅ Add this service inside <application> -->
+        <service android:name="org.eclipse.paho.android.service.MqttService" />
 
         <activity
             android:name=".MainActivity"
