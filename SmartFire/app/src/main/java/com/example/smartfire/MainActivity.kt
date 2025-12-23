@@ -19,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +34,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.smartfire.ui.theme.SmartFireTheme
 import kotlinx.coroutines.delay
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+
 
 class MainActivity : ComponentActivity() {
     lateinit var bluetoothManager: BluetoothManager
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
             SmartFireTheme {
                 val navController = rememberNavController()
                 val viewModel: BluetoothViewModel = viewModel()
+
                 viewModel.setupMqtt()
                 LaunchedEffect(Unit) {
                     delay(2000) // wait 2 seconds for MQTT to connect
@@ -141,7 +146,7 @@ fun MainScreen(
             val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
             context.startActivity(intent)
         }) {
-            Text("Bluetooth OFF", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text("Bluetooth Settings", fontSize = 30.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -158,7 +163,7 @@ fun MainScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         OutlinedButton(onClick = {
-            viewModel.publishJson("smartfire/test", "{\"test\":\"hello\"}")
+            viewModel.publishJson("interlab/node/bluetooth", "{\"test\":\"hello\"}")
         }) {
             Text("Test MQTT Publish", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
@@ -207,21 +212,75 @@ fun HomeScreen(
 
 @Composable
 fun ConnectedScreen(viewModel: BluetoothViewModel) {
-    val receivedText by viewModel.receivedText.collectAsState()
+    val latestValues by viewModel.latestValues.collectAsState()
+    val sentValues by viewModel.sentValues.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
+        verticalArrangement = Arrangement.Top
     ) {
         Text("Connected!", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
-        Text(receivedText, fontSize = 16.sp)
-        Spacer(modifier = Modifier.height(16.dp))
+
         Button(onClick = { viewModel.reconnect() }) {
             Text("Reconnect")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Dashboard section
+        Text("Dashboard", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                latestValues.forEach { (key, value) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(key, fontWeight = FontWeight.SemiBold)
+                        Text(value, fontSize = 16.sp)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Sent values list
+        Text("Sent Values", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        LazyColumn(
+            modifier = Modifier.weight(1f)
+        ) {
+            items(sentValues.size) { index ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Timestamp: ${latestValues["timestamp"] ?: "-"}")
+                        Text("PM1.0: ${latestValues["pm1.0"] ?: "-"}")
+                        Text("PM2.5: ${latestValues["pm2.5"] ?: "-"}")
+                        Text("PM10: ${latestValues["pm10"] ?: "-"}")
+                        Text("CO2: ${latestValues["co2"] ?: "-"}")
+                        Text("CO: ${latestValues["co"] ?: "-"}")
+                        Text("Temperature: ${latestValues["temperature"] ?: "-"} °C")
+                        Text("Humidity: ${latestValues["humidity"] ?: "-"} %")
+                        Text("Air Pressure: ${latestValues["airpressure"] ?: "-"} hPa")
+                        Text("Altitude: ${latestValues["altitude"] ?: "-"} m")
+                    }
+                }
+
+            }
         }
     }
 }
