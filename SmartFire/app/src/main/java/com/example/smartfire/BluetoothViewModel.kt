@@ -1,9 +1,14 @@
 package com.example.smartfire
 
+import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
-import androidx.lifecycle.ViewModel
+import android.content.ContentValues
+import android.content.Context
+import android.provider.MediaStore
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,19 +20,29 @@ import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 
-class BluetoothViewModel : ViewModel() {
+class BluetoothViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val _mqttStatus = MutableStateFlow(false)
+    val mqttStatus: StateFlow<Boolean> = _mqttStatus
+
+    private val mqttUsername = "Irfan"
+    private val mqttPassword = "XT30nR2d1qE9Hm"
+
+    private var mqttClient: Mqtt3AsyncClient? = null
     private var mqttConnected = false
+    private var mqttReconnectJob: Job? = null
+
+    private var csvFileUri: android.net.Uri? = null
+    private val sessionFileName = "smartfire_${System.currentTimeMillis()}.csv"
+
+    private val appContext: Context = application.applicationContext
+
     private val _receivedText = MutableStateFlow("")
-
-    // Latest parsed values for dashboard
     private val _latestValues = MutableStateFlow<Map<String, String>>(emptyMap())
-    val latestValues: StateFlow<Map<String, String>> = _latestValues
-
-    // History of sent JSON payloads
     private val _sentValues = MutableStateFlow<List<String>>(emptyList())
-    val sentValues: StateFlow<List<String>> = _sentValues
 
+    val latestValues: StateFlow<Map<String, String>> = _latestValues
+    val sentValues: StateFlow<List<String>> = _sentValues
     val receivedText: StateFlow<String> = _receivedText
 
     private var lastDevice: BluetoothDevice? = null
@@ -35,110 +50,182 @@ class BluetoothViewModel : ViewModel() {
     private var inputStream: InputStream? = null
     private var readerJob: Job? = null
 
-    private var mqttClient: Mqtt3AsyncClient? = null
 
-    // ✅ Setup MQTT with HiveMQ client
+    // ---------------------------------------------------------
+    // MQTT SETUP + AUTO RECONNECT
+    // ---------------------------------------------------------
     fun setupMqtt() {
         mqttClient = MqttClient.builder()
             .useMqttVersion3()
-            .serverHost("test.mosquitto.org")
-            .serverPort(1883)
-            .identifier("AndroidClient_" + System.currentTimeMillis())
+            .serverHost("dbb1e064fb494148b791a3bbed394a13.s1.eu.hivemq.cloud")
+            .serverPort(8883)
+            .sslWithDefaultConfig()
+            .identifier("AndroidClient_${System.currentTimeMillis()}")
+            .addDisconnectedListener {
+                mqttConnected = false
+                Log.e("MQTT", "MQTT disconnected")
+            }
             .buildAsync()
 
-        mqttClient?.connect()?.whenComplete { _, throwable ->
-            if (throwable == null) {
-                mqttConnected = true
-                Log.d("MQTT", "Connected to test.mosquitto.org")
-                publishJson("testDevice123", "{\"msg\":\"hello from Irfan\"}")
-            } else {
-                mqttConnected = false
-                Log.e("MQTT", "Connection failed", throwable)
+        startMqttReconnectLoop()
+        connectMqtt()
+    }
+
+    private fun connectMqtt() {
+        mqttClient?.connectWith()
+            ?.simpleAuth()
+            ?.username(mqttUsername)
+            ?.password(mqttPassword.toByteArray())
+            ?.applySimpleAuth()
+            ?.send()
+            ?.whenComplete { _, throwable ->
+                if (throwable == null) {
+                    mqttConnected = true
+                    _mqttStatus.value = true
+                    Log.d("MQTT", "Connected securely to HiveMQ Cloud")
+                } else {
+                    mqttConnected = false
+                    _mqttStatus.value = false
+                    Log.e("MQTT", "Connection failed", throwable)
+                }
+            }
+    }
+
+    private fun startMqttReconnectLoop() {
+        mqttReconnectJob?.cancel()
+
+        mqttReconnectJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (!mqttConnected) {
+                    Log.d("MQTT", "Attempting reconnect...")
+                    connectMqtt()
+                }
+                delay(3000)
             }
         }
     }
 
-    fun isMqttConnected(): Boolean = mqttConnected
 
-    // ✅ Publish to interlab/node/bluetooth/<deviceId>/data
+    // ---------------------------------------------------------
+    // MQTT PUBLISH
+    // ---------------------------------------------------------
     fun publishJson(deviceId: String, json: String) {
-        if (!mqttConnected) {
-            Log.e("MQTT", "Publish skipped: Not connected")
-            return
-        }
+        if (!mqttConnected) return
 
         val topic = "interlab/node/bluetooth/$deviceId/data"
+
         mqttClient?.publishWith()
             ?.topic(topic)
             ?.payload(json.toByteArray())
             ?.send()
+
         Log.d("MQTT", "Published to $topic: $json")
     }
 
-    // ✅ Expect exactly 7 values, all strings
-    private fun parseToJson(raw: String): String {
-        val values = raw.split(",").map { it.trim() }
-        if (values.size < 9) return "{}"
 
-        val map = mapOf(
-            "timestamp" to System.currentTimeMillis().toString(),
-            "pm1.0" to values[0],
-            "pm2.5" to values[1],
-            "pm10" to values[2],
-            "co2" to values[3],
-            "co" to values[4],
-            "temperature" to values[5],
-            "humidity" to values[6],
-            "airpressure" to values[7],
-            "altitude" to values[8]
-        )
+    // ---------------------------------------------------------
+    // CSV WRITING
+    // ---------------------------------------------------------
+    private fun saveCsvToDownloads(csvLine: String) {
+        val resolver = appContext.contentResolver
 
-        return JSONObject(map).toString()
+        if (csvFileUri == null) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, sessionFileName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+                put(MediaStore.Downloads.RELATIVE_PATH, "Download/")
+            }
+            csvFileUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+
+            // Write header
+            csvFileUri?.let { uri ->
+                resolver.openOutputStream(uri, "wa")?.bufferedWriter().use { writer ->
+                    writer?.write("packetId,esp32_send_ts,phone_received_ts,phone_forwarded_ts,payload_raw")
+                    writer?.newLine()
+                }
+            }
+        }
+
+        csvFileUri?.let { uri ->
+            resolver.openOutputStream(uri, "wa")?.bufferedWriter().use { writer ->
+                writer?.write(csvLine)
+                writer?.newLine()
+            }
+        }
     }
 
 
+    // ---------------------------------------------------------
+    // BLUETOOTH
+    // ---------------------------------------------------------
     fun connectToDevice(device: BluetoothDevice) {
-        lastDevice = device
-        val uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-        socket = device.createRfcommSocketToServiceRecord(uuid)
-        try {
-            BluetoothAdapter.getDefaultAdapter().cancelDiscovery()
-            socket?.connect()
-            inputStream = socket?.inputStream
-            Log.d("Bluetooth", "Connected to ${device.name}")
-            startReading()
-        } catch (e: IOException) {
-            _receivedText.value += "\nConnection failed: ${e.message}"
+        viewModelScope.launch(Dispatchers.IO) {
+            lastDevice = device
+            val uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+            socket = device.createRfcommSocketToServiceRecord(uuid)
+
+            try {
+                BluetoothAdapter.getDefaultAdapter().cancelDiscovery()
+                socket?.connect()
+                inputStream = socket?.inputStream
+                Log.d("Bluetooth", "Connected to ${device.name}")
+                startReading()
+            } catch (e: IOException) {
+                _receivedText.value += "\nConnection failed: ${e.message}"
+            }
         }
     }
 
     fun startReading() {
-        readerJob = CoroutineScope(Dispatchers.IO).launch {
-            Log.d("Bluetooth", "Started reading from input stream")
+        readerJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val buffer = ByteArray(1024)
-                while (true) {
+
+                while (isActive) {
                     val bytes = inputStream?.read(buffer) ?: break
+                    if (bytes <= 0) continue
+
                     val raw = String(buffer, 0, bytes).trim()
-                    if (raw.isNotEmpty()) {
-                        _receivedText.value += "\n$raw"
+                    if (raw.isEmpty()) continue
 
-                        if (mqttConnected) {
-                            val json = parseToJson(raw)
-                            val deviceId = lastDevice?.address?.replace(":", "") ?: "unknown"
-                            publishJson(deviceId, json)
+                    val phoneReceivedTs = System.currentTimeMillis()
 
-                            // ✅ Update dashboard with latest parsed values
-                            val obj = JSONObject(json)
-                            val map = obj.keys().asSequence().associateWith { obj.getString(it) }
-                            _latestValues.value = map
+                    _receivedText.value += "\n$raw"
 
-                            // ✅ Update history (newest first)
-                            _sentValues.value = listOf(json) + _sentValues.value
-                        } else {
-                            Log.w("MQTT", "Skipping publish, not connected yet")
-                        }
-                    }
+                    val (packetId, esp32SendTs) = parseEsp32Payload(raw)
+
+                    val phoneForwardedTs = System.currentTimeMillis()
+
+                    val json = JSONObject().apply {
+                        put("packetId", packetId)
+                        put("esp32_send_ts", esp32SendTs)
+                        put("phone_received_ts", phoneReceivedTs)
+                        put("phone_forwarded_ts", phoneForwardedTs)
+                        put("payload_raw", raw)
+                    }.toString()
+
+                    val deviceId = lastDevice?.address?.replace(":", "") ?: "unknown"
+
+                    if (mqttConnected) publishJson(deviceId, json)
+
+                    val csvRow = jsonToCsvRow(
+                        packetId,
+                        esp32SendTs,
+                        phoneReceivedTs,
+                        phoneForwardedTs,
+                        raw
+                    )
+                    saveCsvToDownloads(csvRow)
+
+                    _latestValues.value = mapOf(
+                        "packetId" to packetId,
+                        "esp32_send_ts" to esp32SendTs,
+                        "phone_received_ts" to phoneReceivedTs.toString(),
+                        "phone_forwarded_ts" to phoneForwardedTs.toString(),
+                        "payload_raw" to raw
+                    )
+
+                    _sentValues.value = listOf(json) + _sentValues.value
                 }
             } catch (e: IOException) {
                 _receivedText.value += "\nConnection lost: ${e.message}"
@@ -146,10 +233,46 @@ class BluetoothViewModel : ViewModel() {
         }
     }
 
+
+    // ---------------------------------------------------------
+    // HELPERS
+    // ---------------------------------------------------------
+    private fun parseEsp32Payload(raw: String): Pair<String, String> {
+        val parts = raw.split(",")
+        if (parts.size < 2) return Pair("unknown", "unknown")
+
+        val packetId = parts[0].trim()
+        val esp32SendTs = parts[1].trim()
+
+        return Pair(packetId, esp32SendTs)
+    }
+
+    private fun jsonToCsvRow(
+        packetId: String,
+        esp32SendTs: String,
+        phoneReceivedTs: Long,
+        phoneForwardedTs: Long,
+        raw: String
+    ): String {
+        return listOf(
+            packetId,
+            esp32SendTs,
+            phoneReceivedTs.toString(),
+            phoneForwardedTs.toString(),
+            raw
+        ).joinToString(",")
+    }
+
+
+    // ---------------------------------------------------------
+    // CLEANUP
+    // ---------------------------------------------------------
     fun reconnect() {
         readerJob?.cancel()
-        inputStream?.close()
-        socket?.close()
+        try {
+            inputStream?.close()
+            socket?.close()
+        } catch (_: IOException) {}
         _receivedText.value += "\nAttempting to reconnect..."
         lastDevice?.let { connectToDevice(it) }
     }
@@ -157,7 +280,9 @@ class BluetoothViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         readerJob?.cancel()
-        inputStream?.close()
-        socket?.close()
+        try {
+            inputStream?.close()
+            socket?.close()
+        } catch (_: IOException) {}
     }
 }

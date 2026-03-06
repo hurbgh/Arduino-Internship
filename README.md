@@ -1,2 +1,2 @@
 # AIT interlab internship
-## Test sensor project
+This is the SmartFire app project. The goal is to provide a more conventient way to access Canarin Node data by connecting to it directly using bluetooth and seeing the data it has without needing to connect to a server on the internet over wifi or mobile data.

@@ -4,6 +4,20 @@
 #include <Adafruit_BME280.h>
 #include "BluetoothSerial.h"
 
+uint32_t packetId = 0;
+
+uint16_t crc16(const String &data) {
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < data.length(); i++) {
+    crc ^= (uint16_t)data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+      else crc >>= 1;
+    }
+  }
+  return crc;
+}
+
 String device_name = "Canarin Node";
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled!
@@ -237,13 +251,39 @@ void loop() {
   delay(50);
   coData = coConnect.getCOData();
 
-  // Output
-  String sensorData = pmData + "," + String(co2Data) + "," + String(coData) + "," +
-                      String(temp) + "," + String(humidity) + "," +
-                      String(airPressure) + "," + String(altitude);
+  // Build payload
+  uint32_t sendTs = millis();
 
-  SerialBT.println(sensorData);
-  Serial.println(sensorData);
+  int pm1, pm25, pm10;
+  sscanf(pmData.c_str(), "%d,%d,%d", &pm1, &pm25, &pm10);
+
+  String payload =
+    String(packetId) + "," +
+    String(sendTs) + "," +
+    String(pm1) + "," +
+    String(pm25) + "," +
+    String(pm10) + "," +
+    String(co2Data) + "," +
+    String(coData) + "," +
+    String(temp, 2) + "," +
+    String(humidity, 2) + "," +
+    String(airPressure, 2) + "," +
+    String(altitude, 2);
+
+  // Compute CRC
+  uint16_t crc = crc16(payload);
+
+  // Append CRC
+  payload += "," + String(crc);
+
+  // Send over Bluetooth
+  SerialBT.println(payload);
+
+  // Also print to serial for logging
+  Serial.println(payload);
+
+  packetId++;
+
 
   // One-second cadence
   delay(1000);
