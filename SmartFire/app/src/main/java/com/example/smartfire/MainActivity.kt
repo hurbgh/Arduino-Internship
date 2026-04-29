@@ -5,28 +5,31 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.CircleShape
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,11 +37,8 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.smartfire.ui.theme.SmartFireTheme
 import org.json.JSONObject
-import androidx.compose.ui.platform.LocalContext
-
-
+import com.example.smartfire.ui.theme.SmartFireTheme // adjust package if needed
 
 class MainActivity : ComponentActivity() {
     lateinit var bluetoothManager: BluetoothManager
@@ -76,14 +76,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        enableEdgeToEdge()
+
         setContent {
             SmartFireTheme {
                 val navController = rememberNavController()
                 val viewModel: BluetoothViewModel =
                     viewModel(factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application))
 
-                // Start MQTT once
                 LaunchedEffect(Unit) {
                     viewModel.setupMqtt()
                 }
@@ -172,7 +171,6 @@ fun MainScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         OutlinedButton(onClick = {
-            // Use a simple deviceId for testing
             viewModel.publishJson("testdevice", """{"test":"hello"}""")
         }) {
             Text("Test MQTT Publish", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -221,9 +219,9 @@ fun HomeScreen(
 @Composable
 fun MqttStatusDot(isConnected: Boolean) {
     val color = if (isConnected)
-        Color(0xFF34C759)   // green
+        Color(0xFF34C759)
     else
-        Color(0xFFFF3B30)   // red
+        Color(0xFFFF3B30)
 
     Box(
         modifier = Modifier
@@ -238,6 +236,36 @@ fun ConnectedScreen(viewModel: BluetoothViewModel) {
     val latestValues by viewModel.latestValues.collectAsState()
     val sentValues by viewModel.sentValues.collectAsState()
     val mqttStatus by viewModel.mqttStatus.collectAsState()
+    val alarmMessage by viewModel.alarmMessage.collectAsState()
+
+    val context = LocalContext.current
+
+    val alarmRingtone: Ringtone? = remember {
+        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        RingtoneManager.getRingtone(context, uri)
+    }
+
+    LaunchedEffect(alarmMessage) {
+        if (alarmMessage != null) {
+            alarmRingtone?.play()
+        } else {
+            alarmRingtone?.stop()
+        }
+    }
+
+    if (alarmMessage != null) {
+        AlertDialog(
+            onDismissRequest = { /* force explicit acknowledgement */ },
+            title = { Text("FIRE / AIR QUALITY ALERT") },
+            text = { Text(alarmMessage ?: "") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.acknowledgeAlarm() }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -263,7 +291,6 @@ fun ConnectedScreen(viewModel: BluetoothViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Dashboard
         Text("Dashboard", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Card(
@@ -276,6 +303,24 @@ fun ConnectedScreen(viewModel: BluetoothViewModel) {
                 Text("ESP32 Send TS: ${latestValues["esp32_send_ts"] ?: "-"}")
                 Text("Phone Received TS: ${latestValues["phone_received_ts"] ?: "-"}")
                 Text("Phone Forwarded TS: ${latestValues["phone_forwarded_ts"] ?: "-"}")
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text("PM1: ${latestValues["pm1"] ?: "-"}")
+                Text("PM2.5: ${latestValues["pm25"] ?: "-"}")
+                Text("PM10: ${latestValues["pm10"] ?: "-"}")
+
+                Text("CO₂: ${latestValues["co2"] ?: "-"} ppm")
+                Text("CO: ${latestValues["co"] ?: "-"} ppm")
+
+                Text("Temperature: ${latestValues["temp"] ?: "-"} °C")
+                Text("Humidity: ${latestValues["humidity"] ?: "-"} %")
+                Text("Pressure: ${latestValues["pressure"] ?: "-"} hPa")
+                Text("Altitude: ${latestValues["altitude"] ?: "-"} m")
+
+                Text("CRC: ${latestValues["crc"] ?: "-"}")
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Text("Raw Payload:")
                 Text(latestValues["payload_raw"] ?: "-", fontSize = 12.sp)
             }
@@ -283,7 +328,6 @@ fun ConnectedScreen(viewModel: BluetoothViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Sent values list
         Text("Sent Values", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -311,12 +355,23 @@ fun ConnectedScreen(viewModel: BluetoothViewModel) {
                         Text("esp32_send_ts: ${obj.optString("esp32_send_ts", "-")}")
                         Text("phone_received_ts: ${obj.optLong("phone_received_ts", 0L)}")
                         Text("phone_forwarded_ts: ${obj.optLong("phone_forwarded_ts", 0L)}")
+
+                        Text("PM1: ${obj.optString("pm1", "-")}")
+                        Text("PM2.5: ${obj.optString("pm25", "-")}")
+                        Text("PM10: ${obj.optString("pm10", "-")}")
+                        Text("CO₂: ${obj.optString("co2", "-")} ppm")
+                        Text("CO: ${obj.optString("co", "-")} ppm")
+                        Text("Temperature: ${obj.optString("temp", "-")} °C")
+                        Text("Humidity: ${obj.optString("humidity", "-")} %")
+                        Text("Pressure: ${obj.optString("pressure", "-")} hPa")
+                        Text("Altitude: ${obj.optString("altitude", "-")} m")
+                        Text("CRC: ${obj.optString("crc", "-")}")
+
                         Text("payload_raw:")
                         Text(obj.optString("payload_raw", "-"), fontSize = 12.sp)
                     }
                 }
             }
         }
-
     }
 }
